@@ -82,22 +82,21 @@ export default function AccountManager() {
             <Field label="Account Label">
               <input required value={f.name} onChange={e => set('name', e.target.value)} placeholder="My Business Page" style={s.input} />
             </Field>
-            <Field label="Instagram User ID">
-              <input required={!editId} value={f.ig_user_id} onChange={e => set('ig_user_id', e.target.value)} placeholder="17841XXXXXXXXXX" style={s.input} disabled={!!editId} />
-              <div style={s.hint}>Business/Creator IG account ID from Meta Graph API</div>
+            <Field label="Instagram User ID (optional — needed for auto-posting)">
+              <input value={f.ig_user_id} onChange={e => set('ig_user_id', e.target.value)} placeholder="17841XXXXXXXXXX" style={s.input} disabled={!!editId} />
+              <div style={s.hint}>Numeric ID from Meta Graph API — only required if you want to auto-post</div>
             </Field>
           </div>
 
-          <Field label={`Access Token${editId ? ' (leave blank to keep current)' : ''}`}>
+          <Field label={`Access Token (optional — needed for auto-posting)${editId ? ' — leave blank to keep current' : ''}`}>
             <input
               type="password"
-              required={!editId}
               value={f.access_token}
               onChange={e => set('access_token', e.target.value)}
               placeholder="EAAxxxxx… (long-lived page access token)"
               style={s.input}
             />
-            <div style={s.hint}>Get from Meta Developer Console — see .env.example for full instructions</div>
+            <div style={s.hint}>Page Access Token from Meta Graph API — only required if you want to auto-post</div>
           </Field>
 
           <div style={s.grid2}>
@@ -119,7 +118,7 @@ export default function AccountManager() {
           </Field>
 
           <button type="submit" disabled={loading} style={{ ...s.btn, opacity: loading ? 0.5 : 1 }}>
-            {loading ? 'Saving…' : editId ? 'Save Changes' : 'Verify & Add Account'}
+            {loading ? 'Saving…' : editId ? 'Save Changes' : 'Add Account'}
           </button>
         </form>
       )}

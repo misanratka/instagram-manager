@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
 const { verifyToken } = require('../services/instagramPoster');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -20,16 +21,25 @@ router.post('/', async (req, res, next) => {
     if (!name || !ig_user_id || !access_token)
       return res.status(400).json({ error: 'name, ig_user_id, and access_token are required' });
 
-    const igData = await verifyToken(ig_user_id, access_token);
     const id = uuidv4();
+    let username = name;
+
+    if (ig_user_id && access_token) {
+      try {
+        const igData = await verifyToken(ig_user_id, access_token);
+        username = igData.username || igData.name || name;
+      } catch (err) {
+        logger.warn('Token verification failed, saving account anyway:', err.message);
+      }
+    }
 
     await getDB().run(
       `INSERT INTO accounts (id, name, username, ig_user_id, access_token, caption_style, caption_prompt)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, name, igData.username || name, ig_user_id, access_token, caption_style || 'casual', caption_prompt || null]
+      [id, name, username, ig_user_id || null, access_token || null, caption_style || 'casual', caption_prompt || null]
     );
 
-    res.json({ id, username: igData.username, message: 'Account verified and added' });
+    res.json({ id, username, message: 'Account added successfully' });
   } catch (err) { next(err); }
 });
 
