@@ -6,10 +6,10 @@ const GRAPH = 'https://graph.facebook.com/v19.0';
 async function verifyToken(igUserId, accessToken) {
   try {
     const res = await axios.get(`${GRAPH}/${igUserId}`, {
-      params: { fields: 'id,username,name', access_token: accessToken },
+      params: { fields: 'id,name', access_token: accessToken },
       timeout: 15000
     });
-    return res.data;
+    return { username: res.data.name || igUserId, ...res.data };
   } catch (err) {
     const meta = err.response?.data?.error;
     throw new Error(meta?.message || 'Instagram verification failed — check your User ID and Access Token');
