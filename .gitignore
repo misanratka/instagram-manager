@@ -1,0 +1,12 @@
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+backend/.env
+backend/cookies.txt
+backend/data/
+backend/logs/
+uploads/
+frontend/dist/
+*.mp4
+*.mp3
+*.srt
