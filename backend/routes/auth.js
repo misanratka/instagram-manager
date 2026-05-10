@@ -7,30 +7,28 @@ const logger = require('../services/logger');
 const router = express.Router();
 
 function cfg() {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
   return {
     appId:       process.env.IG_APP_ID,
     appSecret:   process.env.IG_APP_SECRET,
-    redirectUri: `${(process.env.PUBLIC_URL || '').replace(/\/$/, '')}/auth/callback`,
-    frontendUrl: (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '')
+    redirectUri: frontendUrl,   // Instagram redirects back to the frontend root
+    frontendUrl
   };
 }
 
-// Step 1 — redirect user to Instagram login
+// Step 1 — send user to Instagram login
 router.get('/instagram', (req, res) => {
   const { appId, redirectUri } = cfg();
   const scope = 'instagram_business_basic,instagram_business_content_publish';
-  const url = `https://www.instagram.com/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
+  const url = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
   res.redirect(url);
 });
 
-// Step 2 — Instagram redirects back here with a code
-router.get('/callback', async (req, res) => {
+// Step 2 — frontend sends the ?code= here to exchange for a token
+router.post('/exchange', async (req, res, next) => {
   const { appId, appSecret, redirectUri, frontendUrl } = cfg();
-  const { code, error } = req.query;
-
-  if (error) {
-    return res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(req.query.error_description || error)}`);
-  }
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'code is required' });
 
   try {
     // Exchange code → short-lived token
@@ -48,33 +46,32 @@ router.get('/callback', async (req, res) => {
     });
     const longToken = longRes.data.access_token;
 
-    // Get Instagram username / name
+    // Get display name
     let igName = 'Instagram Account';
     try {
-      const infoRes = await axios.get(`https://graph.instagram.com/v19.0/${igUserId}`, {
+      const info = await axios.get(`https://graph.instagram.com/v19.0/${igUserId}`, {
         params: { fields: 'id,name,username', access_token: longToken }
       });
-      igName = infoRes.data.username || infoRes.data.name || igName;
+      igName = info.data.username || info.data.name || igName;
     } catch {}
 
-    // Save or update in DB
+    // Save or update
     const existing = await getDB().get('SELECT id FROM accounts WHERE ig_user_id=$1', [igUserId]);
     if (existing) {
       await getDB().run('UPDATE accounts SET access_token=$1 WHERE ig_user_id=$2', [longToken, igUserId]);
-      logger.info(`Updated token for @${igName}`);
     } else {
       await getDB().run(
         `INSERT INTO accounts (id, name, username, ig_user_id, access_token, caption_style) VALUES ($1,$2,$3,$4,$5,$6)`,
         [uuidv4(), igName, igName, igUserId, longToken, 'casual']
       );
-      logger.info(`Added account @${igName}`);
     }
 
-    res.redirect(`${frontendUrl}?auth_success=1`);
+    logger.info(`Instagram account connected: @${igName}`);
+    res.json({ success: true, username: igName });
   } catch (err) {
-    logger.error('OAuth callback error:', err.message);
+    logger.error('Token exchange failed:', err.message);
     const msg = err.response?.data?.error_message || err.response?.data?.error?.message || err.message;
-    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(msg)}`);
+    res.status(400).json({ error: msg });
   }
 });
 

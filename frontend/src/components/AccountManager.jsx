@@ -18,16 +18,24 @@ export default function AccountManager() {
 
   useEffect(() => {
     load();
-    // Handle redirect back from Facebook OAuth
     const params = new URLSearchParams(window.location.search);
-    if (params.get('auth_success') !== null) {
-      const n = params.get('auth_success');
-      setSuccess(n > 0 ? `${n} Instagram account(s) connected successfully!` : 'Connected but no Instagram Business accounts found on your Facebook Pages.');
+    const code = params.get('code');
+    if (code) {
       window.history.replaceState({}, '', window.location.pathname);
-    }
-    if (params.get('auth_error')) {
-      setError('Facebook login failed: ' + params.get('auth_error'));
-      window.history.replaceState({}, '', window.location.pathname);
+      setLoading(true);
+      fetch(`${BACKEND}/auth/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) throw new Error(data.error);
+          setSuccess(`@${data.username} connected successfully!`);
+          load();
+        })
+        .catch(err => setError('Instagram connect failed: ' + err.message))
+        .finally(() => setLoading(false));
     }
   }, []);
 
