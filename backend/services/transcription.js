@@ -10,7 +10,7 @@ function extractAudio(videoPath) {
   return new Promise((resolve, reject) => {
     execFile('ffmpeg', [
       '-y', '-i', videoPath,
-      '-vn', '-c:a', 'libmp3lame', '-b:a', '64k', '-ac', '1',
+      '-vn', '-c:a', 'libmp3lame', '-b:a', '32k', '-ac', '1', '-threads', '1',
       audioPath
     ], { timeout: 120000 }, (err) => {
       if (err) reject(new Error(`Audio extraction failed: ${err.message}`));

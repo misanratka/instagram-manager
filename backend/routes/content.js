@@ -102,6 +102,8 @@ router.post('/enhance/:postId', async (req, res, next) => {
 
     const inputPath = post.local_video_path;
     if (!inputPath) return res.status(400).json({ error: 'No local video to enhance' });
+    const fs = require('fs');
+    if (!fs.existsSync(inputPath)) return res.status(410).json({ error: 'Video file no longer on server — please process the URL again.' });
     if (!burnSubtitles && !addHook && !enhance)
       return res.status(400).json({ error: 'Select at least one enhancement option' });
 

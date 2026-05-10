@@ -67,10 +67,11 @@ async function enhanceVideo({ inputPath, srtContent, hookText, burnSubtitles, ad
 
   args.push(
     '-c:v', 'libx264',
-    '-preset', 'fast',
-    '-crf', '23',
+    '-preset', 'ultrafast',
+    '-threads', '1',
+    '-crf', '26',
     '-c:a', 'aac',
-    '-b:a', '128k',
+    '-b:a', '96k',
     '-movflags', '+faststart',
     outputPath
   );

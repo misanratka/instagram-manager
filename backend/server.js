@@ -46,7 +46,7 @@ async function start() {
   startScheduler();
   app.listen(PORT, () => {
     logger.info(`Backend running at http://localhost:${PORT}`);
-    if (!process.env.GEMINI_API_KEY) logger.warn('GEMINI_API_KEY not set — transcription and AI captions will be skipped');
+    if (!process.env.GROQ_API_KEY) logger.warn('GROQ_API_KEY not set — transcription and AI captions will be skipped');
     if (!process.env.PUBLIC_URL)     logger.warn('PUBLIC_URL not set — Instagram posting requires a public URL');
   });
 }
