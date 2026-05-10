@@ -82,8 +82,8 @@ export default function AccountManager() {
       <div style={s.hdr}>
         <h2 style={s.h2}>Accounts</h2>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => window.location.href = `${BACKEND}/auth/facebook`} style={s.fbBtn}>
-            Connect with Facebook
+          <button onClick={() => window.location.href = `${BACKEND}/auth/instagram`} style={s.fbBtn}>
+            Connect Instagram
           </button>
           <button onClick={showForm ? cancel : openAdd} style={s.addBtn}>
             {showForm ? 'Cancel' : '+ Manual Add'}
