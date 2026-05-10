@@ -36,7 +36,7 @@ async function generateCaption({ transcript, originalCaption, videoTitle, captio
       messages: [
         {
           role: 'system',
-          content: 'You are an expert Instagram content creator. NEVER copy the original caption word for word. Always write a COMPLETELY NEW caption using different words, fresh angles, and your own creative voice. Optimize for engagement and reach. Max 2200 characters.'
+          content: 'You are an expert Instagram content creator. NEVER copy the original caption word for word. Always write a COMPLETELY NEW caption using different words, fresh angles, and your own creative voice. NEVER include any @mentions, account handles, or tag any accounts. Optimize for engagement and reach. Max 2200 characters.'
         },
         {
           role: 'user',

@@ -1,36 +1,66 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 
-const STEPS = { INPUT: 'input', PROCESSING: 'processing', REVIEW: 'review', ENHANCE: 'enhance' };
+const STEPS = { INPUT: 'input', PROCESSING: 'processing', REVIEW: 'review' };
+
+const COLORS = [
+  { label: 'White',  value: 'white',   hex: '#ffffff' },
+  { label: 'Yellow', value: 'yellow',  hex: '#ffff00' },
+  { label: 'Orange', value: 'orange',  hex: '#ff8800' },
+  { label: 'Red',    value: 'red',     hex: '#ff3333' },
+  { label: 'Cyan',   value: 'cyan',    hex: '#00ffff' },
+  { label: 'Black',  value: 'black',   hex: '#111111' },
+];
+
+const POSITIONS = [
+  { label: 'Top Left',    value: 'top-left' },
+  { label: 'Top Center',  value: 'top-center' },
+  { label: 'Top Right',   value: 'top-right' },
+  { label: 'Mid Center',  value: 'mid-center' },
+  { label: 'Bot Left',    value: 'bot-left' },
+  { label: 'Bot Center',  value: 'bot-center' },
+  { label: 'Bot Right',   value: 'bot-right' },
+];
+
+const SIZES = [
+  { label: 'Small',  value: 'small' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'Large',  value: 'large' },
+  { label: 'XL',     value: 'xl' },
+];
+
+function newOverlay() {
+  return { id: Date.now(), text: '', position: 'bot-center', color: 'white', size: 'medium', startTime: 0, endTime: 0 };
+}
 
 export default function NewPost() {
-  const [accounts, setAccounts]           = useState([]);
-  const [accountId, setAccountId]         = useState('');
-  const [url, setUrl]                     = useState('');
-  const [file, setFile]                   = useState(null);
-  const [step, setStep]                   = useState(STEPS.INPUT);
-  const [result, setResult]               = useState(null);
-  const [caption, setCaption]             = useState('');
-  const [hookText, setHookText]           = useState('');
-  const [enhancedUrl, setEnhancedUrl]     = useState(null);
-  const [burnSubs, setBurnSubs]           = useState(false);
-  const [addHook, setAddHook]             = useState(false);
-  const [enhance, setEnhance]             = useState(false);
-  const [enhancing, setEnhancing]         = useState(false);
-  const [scheduling, setScheduling]       = useState(false);
-  const [scheduleTime, setScheduleTime]   = useState('');
-  const [posting, setPosting]             = useState(false);
-  const [error, setError]                 = useState('');
-  const [success, setSuccess]             = useState('');
+  const [accounts, setAccounts]         = useState([]);
+  const [accountId, setAccountId]       = useState('');
+  const [url, setUrl]                   = useState('');
+  const [file, setFile]                 = useState(null);
+  const [step, setStep]                 = useState(STEPS.INPUT);
+  const [result, setResult]             = useState(null);
+  const [caption, setCaption]           = useState('');
+  const [textOverlays, setTextOverlays] = useState([]);
+  const [enhancedUrl, setEnhancedUrl]   = useState(null);
+  const [burnSubs, setBurnSubs]         = useState(false);
+  const [enhance, setEnhance]           = useState(false);
+  const [enhancing, setEnhancing]       = useState(false);
+  const [scheduling, setScheduling]     = useState(false);
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [posting, setPosting]           = useState(false);
+  const [error, setError]               = useState('');
+  const [success, setSuccess]           = useState('');
   const fileRef = useRef();
 
   useEffect(() => { api.getAccounts().then(setAccounts).catch(() => {}); }, []);
 
   function reset() {
-    setStep(STEPS.INPUT); setResult(null); setCaption(''); setHookText('');
-    setEnhancedUrl(null); setBurnSubs(false); setAddHook(false); setEnhance(false);
-    setScheduling(false); setScheduleTime(''); setError(''); setSuccess('');
-    setUrl(''); setFile(null);
+    setStep(STEPS.INPUT); setResult(null); setCaption('');
+    setTextOverlays([]); setEnhancedUrl(null);
+    setBurnSubs(false); setEnhance(false);
+    setScheduling(false); setScheduleTime('');
+    setError(''); setSuccess(''); setUrl(''); setFile(null);
   }
 
   async function handleProcess() {
@@ -42,7 +72,6 @@ export default function NewPost() {
         : await api.processUrl(url.trim(), accountId || null);
       setResult(data);
       setCaption(data.generatedCaption || '');
-      setHookText(data.hookText || '');
       setStep(STEPS.REVIEW);
     } catch (err) {
       setError(err.message);
@@ -51,11 +80,16 @@ export default function NewPost() {
   }
 
   async function handleEnhance() {
-    if (!burnSubs && !addHook && !enhance) return setError('Select at least one enhancement');
+    const hasOverlays = textOverlays.some(o => o.text.trim());
+    if (!burnSubs && !enhance && !hasOverlays) return setError('Select at least one enhancement or add text');
     setError(''); setEnhancing(true);
     try {
-      await api.updateCaption(result.postId, { caption, hookText });
-      const res = await api.enhanceVideo(result.postId, { burnSubtitles: burnSubs, addHook, enhance, hookText });
+      await api.updateCaption(result.postId, { caption, hookText: '' });
+      const res = await api.enhanceVideo(result.postId, {
+        burnSubtitles: burnSubs,
+        enhance,
+        textOverlays: textOverlays.filter(o => o.text.trim())
+      });
       setEnhancedUrl(res.enhancedVideoUrl);
     } catch (err) {
       setError(err.message);
@@ -68,7 +102,7 @@ export default function NewPost() {
     if (!accountId) return setError('Select an Instagram account first');
     setPosting(true); setError('');
     try {
-      await api.updateCaption(result.postId, { caption, hookText });
+      await api.updateCaption(result.postId, { caption, hookText: '' });
       await api.publishPost(result.postId, { account_id: accountId, caption });
       setSuccess('Reel posted to Instagram!');
       setTimeout(reset, 3000);
@@ -83,11 +117,10 @@ export default function NewPost() {
     if (!scheduleTime) return setError('Pick a date and time');
     setPosting(true); setError('');
     try {
-      await api.updateCaption(result.postId, { caption, hookText });
+      await api.updateCaption(result.postId, { caption, hookText: '' });
       await api.schedulePost(result.postId, {
         scheduled_at: new Date(scheduleTime).toISOString(),
-        account_id: accountId,
-        caption
+        account_id: accountId, caption
       });
       setSuccess(`Scheduled for ${new Date(scheduleTime).toLocaleString()}`);
       setTimeout(reset, 3000);
@@ -103,21 +136,25 @@ export default function NewPost() {
     if (f && f.type.startsWith('video/')) { setFile(f); setUrl(''); }
   }
 
+  function addOverlay() { setTextOverlays(prev => [...prev, newOverlay()]); }
+  function removeOverlay(id) { setTextOverlays(prev => prev.filter(o => o.id !== id)); }
+  function updateOverlay(id, key, val) {
+    setTextOverlays(prev => prev.map(o => o.id === id ? { ...o, [key]: val } : o));
+  }
+
   const minTime = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
   const previewUrl = enhancedUrl || result?.videoUrl;
 
-  // ── PROCESSING STEP ──────────────────────────────────────────
   if (step === STEPS.PROCESSING) {
     return (
       <div style={s.center}>
         <div style={s.spinner} />
         <div style={s.processingTitle}>Processing video…</div>
-        <div style={s.hint}>Downloading, transcribing and generating captions. This may take a minute.</div>
+        <div style={s.hint}>Downloading and generating caption. This may take a moment.</div>
       </div>
     );
   }
 
-  // ── REVIEW STEP ──────────────────────────────────────────────
   if (step === STEPS.REVIEW && result) {
     return (
       <div>
@@ -130,52 +167,69 @@ export default function NewPost() {
         {success && <div style={s.successBox}>{success}</div>}
 
         {/* VIDEO PREVIEW */}
-        <Section label="Preview">
+        <div style={s.videoWrap}>
           <video src={previewUrl} controls style={s.video} />
-          {enhancedUrl && <div style={s.enhancedBadge}>Enhanced version</div>}
-        </Section>
+          {enhancedUrl && <div style={s.badge}>✓ Enhanced</div>}
+        </div>
 
-        {/* METADATA */}
-        {result.metadata?.title && (
-          <div style={s.metaRow}><b>Title:</b> {result.metadata.title}</div>
-        )}
-
-        {/* HOOK TEXT */}
-        <Section label="Hook Text (first 3 seconds overlay)">
-          <input
-            value={hookText}
-            onChange={e => setHookText(e.target.value)}
-            placeholder="e.g. You won't believe this..."
-            style={s.input}
-          />
-          <div style={s.hint}>This text will appear as an overlay on the first 3 seconds of your video</div>
-        </Section>
-
-        {/* ON SCREEN SUGGESTIONS */}
-        {result.onScreenSuggestions?.length > 0 && (
-          <Section label="On-Screen Text Suggestions">
-            <div style={s.chips}>
-              {result.onScreenSuggestions.map((t, i) => (
-                <button key={i} onClick={() => setHookText(t)} style={s.chip}>{t}</button>
-              ))}
+        {/* TEXT OVERLAYS */}
+        <Section label="Text Overlays">
+          {textOverlays.map(o => (
+            <div key={o.id} style={s.overlayCard}>
+              <div style={s.overlayRow}>
+                <input
+                  value={o.text}
+                  onChange={e => updateOverlay(o.id, 'text', e.target.value)}
+                  placeholder="Type your text…"
+                  style={{ ...s.input, flex: 1 }}
+                />
+                <button onClick={() => removeOverlay(o.id)} style={s.removeBtn}>✕</button>
+              </div>
+              <div style={s.overlayControls}>
+                <select value={o.position} onChange={e => updateOverlay(o.id, 'position', e.target.value)} style={s.miniSelect}>
+                  {POSITIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+                <select value={o.size} onChange={e => updateOverlay(o.id, 'size', e.target.value)} style={s.miniSelect}>
+                  {SIZES.map(sz => <option key={sz.value} value={sz.value}>{sz.label}</option>)}
+                </select>
+                <div style={s.colorRow}>
+                  {COLORS.map(c => (
+                    <button
+                      key={c.value}
+                      title={c.label}
+                      onClick={() => updateOverlay(o.id, 'color', c.value)}
+                      style={{
+                        ...s.colorDot,
+                        background: c.hex,
+                        boxShadow: o.color === c.value ? `0 0 0 2px #fff` : 'none'
+                      }}
+                    />
+                  ))}
+                </div>
+                <div style={s.timingRow}>
+                  <input type="number" min="0" placeholder="Start s" value={o.startTime || ''} onChange={e => updateOverlay(o.id, 'startTime', Number(e.target.value))} style={s.timeInput} />
+                  <span style={{ color: '#444', fontSize: 11 }}>→</span>
+                  <input type="number" min="0" placeholder="End s" value={o.endTime || ''} onChange={e => updateOverlay(o.id, 'endTime', Number(e.target.value))} style={s.timeInput} />
+                </div>
+              </div>
             </div>
-            <div style={s.hint}>Click to use as hook text</div>
-          </Section>
-        )}
+          ))}
+          <button onClick={addOverlay} style={s.addOverlayBtn}>+ Add Text</button>
+          <div style={s.hint}>Leave start/end empty to show text for the full video</div>
+        </Section>
 
-        {/* VIDEO ENHANCEMENT */}
-        <Section label="Video Enhancement">
+        {/* ENHANCEMENTS */}
+        <Section label="Enhancements">
           <div style={s.toggleRow}>
-            <Toggle on={burnSubs} onChange={setBurnSubs} label="Burn Subtitles" desc="Embed captions from transcript directly into video" disabled={!result.srtContent} />
-            <Toggle on={addHook}  onChange={setAddHook}  label="Add Hook Overlay" desc="Show hook text on screen for first 3 seconds" />
-            <Toggle on={enhance}  onChange={setEnhance}  label="Enhance Video" desc="Slightly boost brightness, contrast and saturation" />
+            <Toggle on={burnSubs} onChange={setBurnSubs} label="Burn Subtitles" desc="Embed transcript captions into video" disabled={!result.srtContent} />
+            <Toggle on={enhance}  onChange={setEnhance}  label="Boost Quality"  desc="Slightly improve brightness, contrast and color" />
           </div>
           <button
             onClick={handleEnhance}
-            disabled={enhancing || (!burnSubs && !addHook && !enhance)}
-            style={{ ...s.btn, ...s.btnSecondary, opacity: enhancing || (!burnSubs && !addHook && !enhance) ? 0.4 : 1, marginTop: 12 }}
+            disabled={enhancing}
+            style={{ ...s.btn, ...s.btnSecondary, marginTop: 12, opacity: enhancing ? 0.5 : 1 }}
           >
-            {enhancing ? <><span style={s.miniSpinner} /> Enhancing…</> : 'Apply Enhancements'}
+            {enhancing ? <><span style={s.miniSpinner} /> Processing…</> : 'Apply & Render Video'}
           </button>
         </Section>
 
@@ -191,24 +245,21 @@ export default function NewPost() {
           <div style={s.charCount}>{caption.length} / 2200</div>
         </Section>
 
-        {/* ACCOUNT */}
+        {/* ACCOUNT + POST */}
         <Section label="Post to Account">
           <select value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
             <option value="">Select account…</option>
             {accounts.map(a => <option key={a.id} value={a.id}>@{a.username} — {a.name}</option>)}
           </select>
-          {accounts.length === 0 && (
-            <div style={s.hint}>No accounts yet — go to the Accounts tab to add one.</div>
-          )}
+          {accounts.length === 0 && <div style={s.hint}>No accounts yet — go to the Accounts tab to add one.</div>}
         </Section>
 
-        {/* ACTIONS */}
         <div style={s.actions}>
           <button onClick={handlePublish} disabled={posting || !accountId} style={{ ...s.btn, ...s.btnPrimary, opacity: posting || !accountId ? 0.4 : 1 }}>
             {posting ? <><span style={s.miniSpinner} /> Posting…</> : 'Post Now'}
           </button>
           <button onClick={() => setScheduling(v => !v)} style={{ ...s.btn, ...s.btnSecondary }}>
-            {scheduling ? 'Cancel Schedule' : 'Schedule'}
+            {scheduling ? 'Cancel' : 'Schedule'}
           </button>
         </div>
 
@@ -229,27 +280,21 @@ export default function NewPost() {
     );
   }
 
-  // ── INPUT STEP (default) ─────────────────────────────────────
+  // INPUT STEP
   return (
     <div>
       <h2 style={s.h2}>New Post</h2>
-
       {error && <div style={s.errorBox}>{error}</div>}
 
-      <Section label="Account">
+      <Section label="Account (optional)">
         <select value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
-          <option value="">Select account (optional here, required to post)…</option>
+          <option value="">No account selected</option>
           {accounts.map(a => <option key={a.id} value={a.id}>@{a.username} — {a.name}</option>)}
         </select>
       </Section>
 
       <Section label="Video">
-        <div
-          style={s.dropZone}
-          onDrop={onDrop}
-          onDragOver={e => e.preventDefault()}
-          onClick={() => !file && fileRef.current?.click()}
-        >
+        <div style={s.dropZone} onDrop={onDrop} onDragOver={e => e.preventDefault()} onClick={() => !file && fileRef.current?.click()}>
           {file ? (
             <div style={s.fileRow}>
               <span style={{ color: '#ccc' }}>📹 {file.name}</span>
@@ -258,8 +303,8 @@ export default function NewPost() {
           ) : (
             <>
               <div style={s.dropIcon}>⬆</div>
-              <div style={{ color: '#555' }}>Drop video file here or <span style={{ color: '#833ab4', cursor: 'pointer' }}>browse</span></div>
-              <div style={s.hint}>MP4 / MOV / AVI up to 500 MB</div>
+              <div style={{ color: '#555' }}>Drop video here or <span style={{ color: '#833ab4', cursor: 'pointer' }}>browse</span></div>
+              <div style={s.hint}>MP4 / MOV / AVI up to 200 MB</div>
             </>
           )}
         </div>
@@ -273,18 +318,14 @@ export default function NewPost() {
               value={url}
               onChange={e => setUrl(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleProcess()}
-              placeholder="https://www.instagram.com/reel/…  or YouTube / TikTok URL"
+              placeholder="Instagram Reel, YouTube, TikTok URL…"
               style={s.input}
             />
           </>
         )}
       </Section>
 
-      <button
-        onClick={handleProcess}
-        disabled={!url.trim() && !file}
-        style={{ ...s.btn, ...s.btnPrimary, opacity: !url.trim() && !file ? 0.4 : 1 }}
-      >
+      <button onClick={handleProcess} disabled={!url.trim() && !file} style={{ ...s.btn, ...s.btnPrimary, opacity: !url.trim() && !file ? 0.4 : 1 }}>
         Process Video →
       </button>
     </div>
@@ -303,19 +344,12 @@ function Section({ label, children }) {
 function Toggle({ on, onChange, label, desc, disabled }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-      <button
-        onClick={() => !disabled && onChange(!on)}
-        disabled={disabled}
-        style={{
-          width: 40, height: 22, borderRadius: 11, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-          background: on ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#2a2a2a',
-          position: 'relative', flexShrink: 0, transition: 'background .2s', opacity: disabled ? 0.3 : 1
-        }}
-      >
-        <span style={{
-          position: 'absolute', top: 3, left: on ? 21 : 3, width: 16, height: 16,
-          background: '#fff', borderRadius: '50%', transition: 'left .2s'
-        }} />
+      <button onClick={() => !disabled && onChange(!on)} disabled={disabled} style={{
+        width: 40, height: 22, borderRadius: 11, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+        background: on ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#2a2a2a',
+        position: 'relative', flexShrink: 0, transition: 'background .2s', opacity: disabled ? 0.3 : 1
+      }}>
+        <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 16, height: 16, background: '#fff', borderRadius: '50%', transition: 'left .2s' }} />
       </button>
       <div>
         <div style={{ fontSize: 13, color: '#ccc', fontWeight: 500 }}>{label}</div>
@@ -326,35 +360,43 @@ function Toggle({ on, onChange, label, desc, disabled }) {
 }
 
 const s = {
-  h2:            { fontSize: 22, fontWeight: 700, marginBottom: 24, color: '#fff' },
-  label:         { fontSize: 11, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 },
-  input:         { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none' },
-  select:        { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', cursor: 'pointer' },
-  textarea:      { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none' },
-  charCount:     { textAlign: 'right', fontSize: 11, color: '#333', marginTop: 4 },
-  dropZone:      { border: '2px dashed #252525', borderRadius: 10, padding: '36px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: 12 },
-  dropIcon:      { fontSize: 28, marginBottom: 8, color: '#444' },
-  fileRow:       { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  orDivider:     { textAlign: 'center', color: '#333', fontSize: 12, margin: '10px 0' },
-  hint:          { fontSize: 11, color: '#444', marginTop: 5 },
-  chips:         { display: 'flex', flexWrap: 'wrap', gap: 6 },
-  chip:          { padding: '5px 12px', background: '#181818', border: '1px solid #2a2a2a', borderRadius: 20, fontSize: 12, color: '#aaa', cursor: 'pointer' },
-  btn:           { padding: '11px 22px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', border: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'opacity .15s' },
-  btnPrimary:    { background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', color: '#fff' },
-  btnSecondary:  { background: '#1a1a1a', border: '1px solid #333', color: '#ccc' },
-  ghostBtn:      { background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 13, padding: '4px 8px' },
-  clearBtn:      { background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 16, lineHeight: 1 },
-  actions:       { display: 'flex', gap: 10, marginTop: 8 },
-  scheduleBox:   { background: '#0e0e0e', border: '1px solid #1c1c1c', borderRadius: 10, padding: 16, marginTop: 12 },
-  errorBox:      { background: '#1e0d0d', border: '1px solid #4a1a1a', borderRadius: 8, padding: '10px 14px', color: '#ff7070', fontSize: 13, marginBottom: 16 },
-  successBox:    { background: '#0d1e0d', border: '1px solid #1a4a1a', borderRadius: 8, padding: '10px 14px', color: '#70ff70', fontSize: 13, marginBottom: 16 },
-  video:         { width: '100%', borderRadius: 8, maxHeight: 420, background: '#000', display: 'block' },
-  enhancedBadge: { display: 'inline-block', marginTop: 6, fontSize: 11, color: '#fcb045', background: '#1a1200', border: '1px solid #3a2a00', borderRadius: 4, padding: '2px 8px' },
-  metaRow:       { background: '#0e0e0e', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#888', marginBottom: 16 },
-  toggleRow:     { display: 'flex', flexDirection: 'column' },
-  center:        { textAlign: 'center', padding: '60px 0' },
-  processingTitle: { fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8, marginTop: 16 },
-  spinner:       { width: 44, height: 44, border: '3px solid #222', borderTopColor: '#833ab4', borderRadius: '50%', animation: 'spin .8s linear infinite', margin: '0 auto' },
-  miniSpinner:   { display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .6s linear infinite' },
-  reviewHeader:  { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  h2:             { fontSize: 22, fontWeight: 700, marginBottom: 24, color: '#fff' },
+  label:          { fontSize: 11, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 },
+  input:          { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' },
+  select:         { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', cursor: 'pointer' },
+  textarea:       { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none' },
+  charCount:      { textAlign: 'right', fontSize: 11, color: '#333', marginTop: 4 },
+  miniSelect:     { padding: '6px 8px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none', cursor: 'pointer' },
+  timeInput:      { width: 64, padding: '6px 8px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none' },
+  dropZone:       { border: '2px dashed #252525', borderRadius: 10, padding: '36px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: 12 },
+  dropIcon:       { fontSize: 28, marginBottom: 8, color: '#444' },
+  fileRow:        { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  orDivider:      { textAlign: 'center', color: '#333', fontSize: 12, margin: '10px 0' },
+  hint:           { fontSize: 11, color: '#444', marginTop: 5 },
+  btn:            { padding: '11px 22px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', border: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'opacity .15s' },
+  btnPrimary:     { background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', color: '#fff' },
+  btnSecondary:   { background: '#1a1a1a', border: '1px solid #333', color: '#ccc' },
+  addOverlayBtn:  { padding: '8px 16px', background: '#111', border: '1px dashed #333', borderRadius: 8, color: '#888', cursor: 'pointer', fontSize: 13, marginTop: 8 },
+  removeBtn:      { padding: '6px 10px', background: 'transparent', border: 'none', color: '#444', cursor: 'pointer', fontSize: 16, flexShrink: 0 },
+  ghostBtn:       { background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 13 },
+  clearBtn:       { background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 16 },
+  actions:        { display: 'flex', gap: 10, marginTop: 8 },
+  scheduleBox:    { background: '#0e0e0e', border: '1px solid #1c1c1c', borderRadius: 10, padding: 16, marginTop: 12 },
+  errorBox:       { background: '#1e0d0d', border: '1px solid #4a1a1a', borderRadius: 8, padding: '10px 14px', color: '#ff7070', fontSize: 13, marginBottom: 16 },
+  successBox:     { background: '#0d1e0d', border: '1px solid #1a4a1a', borderRadius: 8, padding: '10px 14px', color: '#70ff70', fontSize: 13, marginBottom: 16 },
+  videoWrap:      { position: 'relative', marginBottom: 20 },
+  video:          { width: '100%', borderRadius: 8, maxHeight: 420, background: '#000', display: 'block' },
+  badge:          { display: 'inline-block', marginTop: 6, fontSize: 11, color: '#70ff70', background: '#0d1e0d', border: '1px solid #1a4a1a', borderRadius: 4, padding: '2px 8px' },
+  reviewHeader:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  toggleRow:      { display: 'flex', flexDirection: 'column' },
+  overlayCard:    { background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 8, padding: 12, marginBottom: 8 },
+  overlayRow:     { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 },
+  overlayControls:{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  colorRow:       { display: 'flex', gap: 5, alignItems: 'center' },
+  colorDot:       { width: 18, height: 18, borderRadius: '50%', border: '1px solid #333', cursor: 'pointer', flexShrink: 0 },
+  timingRow:      { display: 'flex', gap: 4, alignItems: 'center' },
+  center:         { textAlign: 'center', padding: '60px 0' },
+  processingTitle:{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8, marginTop: 16 },
+  spinner:        { width: 44, height: 44, border: '3px solid #222', borderTopColor: '#833ab4', borderRadius: '50%', animation: 'spin .8s linear infinite', margin: '0 auto' },
+  miniSpinner:    { display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .6s linear infinite' },
 };
