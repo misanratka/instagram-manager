@@ -8,6 +8,7 @@ const { initDB } = require('./models/db');
 const accountRoutes = require('./routes/accounts');
 const contentRoutes = require('./routes/content');
 const postRoutes = require('./routes/posts');
+const authRoutes = require('./routes/auth');
 const { errorHandler } = require('./middleware/errorHandler');
 const { startScheduler } = require('./services/scheduler');
 const logger = require('./services/logger');
@@ -34,6 +35,7 @@ app.use('/uploads', express.static(uploadDir));
 app.use('/api/accounts', accountRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/auth', authRoutes);
 
 app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })

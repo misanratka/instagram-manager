@@ -5,6 +5,8 @@ const STYLES = ['casual', 'professional', 'funny', 'motivational', 'minimal', 'e
 
 const BLANK = { name: '', ig_user_id: '', access_token: '', caption_style: 'casual', caption_prompt: '' };
 
+const BACKEND = (import.meta.env.VITE_BACKEND_URL ?? '').replace(/\/$/, '');
+
 export default function AccountManager() {
   const [accounts, setAccounts] = useState([]);
   const [showForm, setShowForm]   = useState(false);
@@ -14,7 +16,20 @@ export default function AccountManager() {
   const [error, setError]         = useState('');
   const [success, setSuccess]     = useState('');
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Handle redirect back from Facebook OAuth
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('auth_success') !== null) {
+      const n = params.get('auth_success');
+      setSuccess(n > 0 ? `${n} Instagram account(s) connected successfully!` : 'Connected but no Instagram Business accounts found on your Facebook Pages.');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    if (params.get('auth_error')) {
+      setError('Facebook login failed: ' + params.get('auth_error'));
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   async function load() {
     const data = await api.getAccounts().catch(() => []);
@@ -66,9 +81,14 @@ export default function AccountManager() {
     <div>
       <div style={s.hdr}>
         <h2 style={s.h2}>Accounts</h2>
-        <button onClick={showForm ? cancel : openAdd} style={s.addBtn}>
-          {showForm ? 'Cancel' : '+ Add Account'}
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => window.location.href = `${BACKEND}/auth/facebook`} style={s.fbBtn}>
+            Connect with Facebook
+          </button>
+          <button onClick={showForm ? cancel : openAdd} style={s.addBtn}>
+            {showForm ? 'Cancel' : '+ Manual Add'}
+          </button>
+        </div>
       </div>
 
       {error   && <div style={s.errorBox}>{error}</div>}
@@ -165,6 +185,7 @@ const s = {
   hdr:      { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   h2:       { fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 },
   h3:       { fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 18 },
+  fbBtn:    { padding: '9px 18px', background: '#1877f2', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
   addBtn:   { padding: '9px 18px', background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
   form:     { background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 12, padding: 24, marginBottom: 24 },
   grid2:    { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 },
