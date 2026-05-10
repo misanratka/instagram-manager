@@ -60,7 +60,8 @@ function downloadVideo(url) {
       }
       const stats = fs.statSync(outputPath);
       logger.info(`Downloaded: ${filename} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
-      resolve({ path: outputPath, filename, size: stats.size, url: `/uploads/${filename}` });
+      const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+      resolve({ path: outputPath, filename, size: stats.size, url: `${base}/uploads/${filename}` });
     });
   });
 }

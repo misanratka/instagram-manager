@@ -47,8 +47,7 @@ async function enhanceVideo({ inputPath, srtContent, hookText, burnSubtitles, ad
   let srtPath = null;
   if (burnSubtitles && srtContent) {
     srtPath = writeSRTFile(srtContent, inputPath);
-    // On Windows, ffmpeg needs escaped path with forward slashes
-    const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+    const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
     filters.push(`subtitles='${escapedSrt}':force_style='FontSize=18,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2'`);
   }
 
@@ -84,7 +83,8 @@ async function enhanceVideo({ inputPath, srtContent, hookText, burnSubtitles, ad
   const stats = fs.statSync(outputPath);
   logger.info(`Enhanced video: ${outFilename} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
 
-  return { path: outputPath, filename: outFilename, url: `/uploads/${outFilename}` };
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  return { path: outputPath, filename: outFilename, url: `${base}/uploads/${outFilename}` };
 }
 
 // Extract audio only (for manual transcription fallback)
