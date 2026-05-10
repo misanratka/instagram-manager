@@ -1,10 +1,10 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const logger = require('./logger');
 
-let genAI;
+let groqClient;
 function getClient() {
-  if (!genAI) genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  return genAI;
+  if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return groqClient;
 }
 
 const STYLE_GUIDES = {
@@ -17,7 +17,7 @@ const STYLE_GUIDES = {
 };
 
 async function generateCaption({ transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
-  if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return originalCaption || videoTitle || 'Check this out! #reels #instagram';
   }
 
@@ -31,15 +31,22 @@ async function generateCaption({ transcript, originalCaption, videoTitle, captio
   logger.info(`Generating caption (style: ${captionStyle})`);
 
   try {
-    const model = getClient().getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: 'You are an expert Instagram content creator. Write captions optimized for engagement and reach. Max 2200 characters.'
+    const completion = await getClient().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert Instagram content creator. NEVER copy the original caption word for word. Always write a COMPLETELY NEW caption using different words, fresh angles, and your own creative voice. Optimize for engagement and reach. Max 2200 characters.'
+        },
+        {
+          role: 'user',
+          content: `${context}\n\nStyle: ${styleGuide}\n\nWrite a COMPLETELY NEW and ORIGINAL caption (do NOT copy the original description — rewrite it entirely with fresh words and a new angle):`
+        }
+      ],
+      max_tokens: 400,
+      temperature: 0.95
     });
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `${context}\n\nStyle: ${styleGuide}\n\nWrite the caption:` }] }],
-      generationConfig: { maxOutputTokens: 400, temperature: 0.85 }
-    });
-    return result.response.text().trim();
+    return completion.choices[0].message.content.trim();
   } catch (err) {
     logger.error('Caption generation failed:', err.message);
     return originalCaption || videoTitle || '';
@@ -47,18 +54,25 @@ async function generateCaption({ transcript, originalCaption, videoTitle, captio
 }
 
 async function generateHookText({ transcript, videoTitle }) {
-  if (!process.env.GEMINI_API_KEY) return '';
+  if (!process.env.GROQ_API_KEY) return '';
 
   try {
-    const model = getClient().getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: 'You create short hook text overlays for viral Instagram Reels. The hook appears in the first 3 seconds. Keep it under 8 words. Make it curiosity-driven or bold.'
+    const completion = await getClient().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'You create short hook text overlays for viral Instagram Reels. The hook appears in the first 3 seconds. Keep it under 8 words. Make it curiosity-driven or bold.'
+        },
+        {
+          role: 'user',
+          content: `Video: "${videoTitle}"\nTranscript: "${(transcript || '').substring(0, 300)}"\n\nWrite ONE short hook text (under 8 words):`
+        }
+      ],
+      max_tokens: 30,
+      temperature: 0.9
     });
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `Video: "${videoTitle}"\nTranscript: "${(transcript || '').substring(0, 300)}"\n\nWrite ONE short hook text (under 8 words):` }] }],
-      generationConfig: { maxOutputTokens: 30, temperature: 0.9 }
-    });
-    return result.response.text().trim().replace(/^["']|["']$/g, '');
+    return completion.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
   } catch (err) {
     logger.error('Hook text generation failed:', err.message);
     return '';
@@ -71,18 +85,26 @@ async function generateSubtitleLines({ transcript, segments }) {
 }
 
 async function generateOnScreenSuggestions({ transcript, videoTitle }) {
-  if (!process.env.GEMINI_API_KEY) return [];
+  if (!process.env.GROQ_API_KEY) return [];
 
   try {
-    const model = getClient().getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: 'Return a JSON object with key "texts" containing an array of 2-4 short on-screen text overlays (max 8 words each) suitable for a Reel video.'
+    const completion = await getClient().chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'Return a JSON object with key "texts" containing an array of 2-4 short on-screen text overlays (max 8 words each) suitable for a Reel video. Return ONLY valid JSON, no markdown.'
+        },
+        {
+          role: 'user',
+          content: `Video: "${videoTitle}"\nTranscript: "${(transcript || '').substring(0, 400)}"`
+        }
+      ],
+      max_tokens: 120,
+      temperature: 0.8,
+      response_format: { type: 'json_object' }
     });
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `Video: "${videoTitle}"\nTranscript: "${(transcript || '').substring(0, 400)}"` }] }],
-      generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 120, temperature: 0.8 }
-    });
-    const parsed = JSON.parse(result.response.text());
+    const parsed = JSON.parse(completion.choices[0].message.content);
     return Array.isArray(parsed.texts) ? parsed.texts : [];
   } catch (err) {
     logger.error('On-screen suggestions failed:', err.message);
