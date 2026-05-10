@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
 const { downloadVideo, getVideoMetadata } = require('../services/downloader');
 const { transcribeVideo, segmentsToSRT } = require('../services/transcription');
-const { generateCaption, generateHookText, generateSubtitleLines, generateOnScreenSuggestions } = require('../services/captionGenerator');
+const { generateContent, generateSubtitleLines } = require('../services/captionGenerator');
 const { enhanceVideo } = require('../services/videoProcessor');
 const logger = require('../services/logger');
 
@@ -32,13 +32,13 @@ async function processVideo(videoPath, videoUrl, accountId) {
   const { text: transcript, segments } = await transcribeVideo(videoPath);
   const srtContent = segmentsToSRT(segments);
 
-  const [caption, hookText, onScreenSuggestions] = await Promise.all([
-    generateCaption({ transcript, captionStyle: account?.caption_style || 'casual', customPrompt: account?.caption_prompt }),
-    generateHookText({ transcript, videoTitle: '' }),
-    generateOnScreenSuggestions({ transcript, videoTitle: '' })
-  ]);
+  const { caption, onScreenText } = await generateContent({
+    transcript,
+    captionStyle: account?.caption_style || 'casual',
+    customPrompt: account?.caption_prompt
+  });
 
-  return { transcript, segments, srtContent, caption, hookText, onScreenSuggestions };
+  return { transcript, segments, srtContent, caption, hookText: onScreenText, onScreenSuggestions: [] };
 }
 
 router.post('/process-url', async (req, res, next) => {
@@ -56,11 +56,16 @@ router.post('/process-url', async (req, res, next) => {
       ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [account_id])
       : null;
 
-    const captionWithMeta = caption || await generateCaption({
-      transcript, originalCaption: meta.description, videoTitle: meta.title,
-      captionStyle: account?.caption_style || 'casual', customPrompt: account?.caption_prompt
-    });
-    const hookWithMeta = hookText || await generateHookText({ transcript, videoTitle: meta.title });
+    let captionWithMeta = caption;
+    let hookWithMeta = hookText;
+    if (!captionWithMeta) {
+      const generated = await generateContent({
+        transcript, originalCaption: meta.description, videoTitle: meta.title,
+        captionStyle: account?.caption_style || 'casual', customPrompt: account?.caption_prompt
+      });
+      captionWithMeta = generated.caption;
+      hookWithMeta = generated.onScreenText || hookText;
+    }
 
     const postId = uuidv4();
     await getDB().run(

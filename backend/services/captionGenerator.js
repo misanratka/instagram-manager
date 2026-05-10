@@ -8,75 +8,107 @@ function getClient() {
 }
 
 const STYLE_GUIDES = {
-  casual:       'Write a casual, friendly Instagram caption with 2-3 relevant hashtags. Sound natural, like a real person.',
-  professional: 'Write a professional, authoritative Instagram caption with industry-relevant hashtags.',
-  funny:        'Write a witty, humorous Instagram caption with trending hashtags. Make it entertaining.',
-  motivational: 'Write an inspiring, motivational Instagram caption with uplifting hashtags.',
-  minimal:      'Write a short, punchy Instagram caption — under 15 words — with 1-2 hashtags only.',
-  educational:  'Write an educational Instagram caption that provides value, with niche hashtags.'
+  casual:       'casual, friendly, relatable — like a popular entertainment page',
+  professional: 'authoritative, polished, editorial — like a premium media outlet',
+  funny:        'witty, humorous, meme-friendly — like a viral comedy page',
+  motivational: 'inspiring, uplifting — like a cinematic fan page',
+  minimal:      'ultra-short, punchy — under 15 words for the caption',
+  educational:  'informative, storytelling-focused — like a culture/nostalgia page'
 };
 
-async function generateCaption({ transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
+const SYSTEM_PROMPT = `You are an AI content engine for a professional viral Instagram entertainment page. Your job is to generate TWO completely separate outputs for every video.
+
+OUTPUT 1 — ON-SCREEN TEXT:
+- A short, punchy video overlay (1-2 lines max)
+- Viral, meme-style, copy-friendly — suitable for CapCut, Premiere, Final Cut
+- Think: relatable hook, funny observation, dramatic quote, or bold statement
+- NEVER a full sentence explaining the video
+- NEVER @mentions
+- This is a visual asset, not part of the caption
+
+OUTPUT 2 — INSTAGRAM CAPTION:
+- A fully standalone, professional caption
+- Describes the celebrity/scene/performance/moment naturally
+- Reads like it was written by a premium entertainment or fan page
+- NEVER references the on-screen text, "the hook", "the edit", "the meme"
+- NEVER includes @mentions or account handles
+- NEVER copies original description word-for-word
+- Must make complete sense even if the on-screen text is never seen
+- End ALWAYS with exactly these 3 lines:
+  DM for credit or removal request.
+  I do not own the rights to this video.
+  All rights belong to their respective owners.
+
+ALWAYS return in EXACTLY this format — no extra text, no explanations:
+
+━━━━━━━━━━━━━━━━━━
+ON-SCREEN TEXT
+━━━━━━━━━━━━━━━━━━
+[on-screen text here]
+
+━━━━━━━━━━━━━━━━━━
+CAPTION
+━━━━━━━━━━━━━━━━━━
+[caption here]
+
+DM for credit or removal request.
+I do not own the rights to this video.
+All rights belong to their respective owners.`;
+
+function parseResponse(raw) {
+  try {
+    const onScreenMatch = raw.match(/ON-SCREEN TEXT\s*[━\-=]+\s*([\s\S]*?)(?:[━\-=]{3,}|CAPTION)/i);
+    const captionMatch  = raw.match(/CAPTION\s*[━\-=]+\s*([\s\S]*?)$/i);
+    return {
+      onScreenText: onScreenMatch ? onScreenMatch[1].trim() : '',
+      caption:      captionMatch  ? captionMatch[1].trim()  : raw.trim()
+    };
+  } catch {
+    return { onScreenText: '', caption: raw.trim() };
+  }
+}
+
+async function generateContent({ transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
   if (!process.env.GROQ_API_KEY) {
-    return originalCaption || videoTitle || 'Check this out! #reels #instagram';
+    return {
+      caption: originalCaption || videoTitle || 'Check this out!\n\nDM for credit or removal request.\nI do not own the rights to this video.\nAll rights belong to their respective owners.',
+      onScreenText: ''
+    };
   }
 
-  const styleGuide = customPrompt || STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
+  const style = customPrompt || STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
   const context = [
     videoTitle      && `Video title: ${videoTitle}`,
     originalCaption && `Original description: ${originalCaption.substring(0, 300)}`,
     transcript      && `Transcript: ${transcript.substring(0, 500)}`
   ].filter(Boolean).join('\n');
 
-  logger.info(`Generating caption (style: ${captionStyle})`);
+  logger.info(`Generating content (style: ${captionStyle})`);
 
   try {
     const completion = await getClient().chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
-        {
-          role: 'system',
-          content: 'You are an expert Instagram content creator. NEVER copy the original caption word for word. Always write a COMPLETELY NEW caption using different words, fresh angles, and your own creative voice. NEVER include any @mentions, account handles, or tag any accounts. Optimize for engagement and reach. Max 2200 characters.'
-        },
-        {
-          role: 'user',
-          content: `${context}\n\nStyle: ${styleGuide}\n\nWrite a COMPLETELY NEW and ORIGINAL caption (do NOT copy the original description — rewrite it entirely with fresh words and a new angle):`
-        }
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
       ],
-      max_tokens: 400,
+      max_tokens: 600,
       temperature: 0.95
     });
-    return completion.choices[0].message.content.trim();
+    return parseResponse(completion.choices[0].message.content);
   } catch (err) {
-    logger.error('Caption generation failed:', err.message);
-    return originalCaption || videoTitle || '';
+    logger.error('Content generation failed:', err.message);
+    return {
+      caption: originalCaption || videoTitle || '',
+      onScreenText: ''
+    };
   }
 }
 
-async function generateHookText({ transcript, videoTitle }) {
-  if (!process.env.GROQ_API_KEY) return '';
-
-  try {
-    const completion = await getClient().chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: 'You create short hook text overlays for viral Instagram Reels. The hook appears in the first 3 seconds. Keep it under 8 words. Make it curiosity-driven or bold.'
-        },
-        {
-          role: 'user',
-          content: `Video: "${videoTitle}"\nTranscript: "${(transcript || '').substring(0, 300)}"\n\nWrite ONE short hook text (under 8 words):`
-        }
-      ],
-      max_tokens: 30,
-      temperature: 0.9
-    });
-    return completion.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
-  } catch (err) {
-    logger.error('Hook text generation failed:', err.message);
-    return '';
-  }
+// Keep for backward compatibility
+async function generateCaption(opts) {
+  const { caption } = await generateContent(opts);
+  return caption;
 }
 
 async function generateSubtitleLines({ transcript, segments }) {
@@ -84,32 +116,4 @@ async function generateSubtitleLines({ transcript, segments }) {
   return segments || [];
 }
 
-async function generateOnScreenSuggestions({ transcript, videoTitle }) {
-  if (!process.env.GROQ_API_KEY) return [];
-
-  try {
-    const completion = await getClient().chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: 'Return a JSON object with key "texts" containing an array of 2-4 short on-screen text overlays (max 8 words each) suitable for a Reel video. Return ONLY valid JSON, no markdown.'
-        },
-        {
-          role: 'user',
-          content: `Video: "${videoTitle}"\nTranscript: "${(transcript || '').substring(0, 400)}"`
-        }
-      ],
-      max_tokens: 120,
-      temperature: 0.8,
-      response_format: { type: 'json_object' }
-    });
-    const parsed = JSON.parse(completion.choices[0].message.content);
-    return Array.isArray(parsed.texts) ? parsed.texts : [];
-  } catch (err) {
-    logger.error('On-screen suggestions failed:', err.message);
-    return [];
-  }
-}
-
-module.exports = { generateCaption, generateHookText, generateSubtitleLines, generateOnScreenSuggestions };
+module.exports = { generateContent, generateCaption, generateSubtitleLines };

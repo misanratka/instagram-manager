@@ -41,6 +41,7 @@ export default function NewPost() {
   const [step, setStep]                 = useState(STEPS.INPUT);
   const [result, setResult]             = useState(null);
   const [caption, setCaption]           = useState('');
+  const [onScreenText, setOnScreenText] = useState('');
   const [textOverlays, setTextOverlays] = useState([]);
   const [enhancedUrl, setEnhancedUrl]   = useState(null);
   const [burnSubs, setBurnSubs]         = useState(false);
@@ -57,7 +58,7 @@ export default function NewPost() {
 
   function reset() {
     setStep(STEPS.INPUT); setResult(null); setCaption('');
-    setTextOverlays([]); setEnhancedUrl(null);
+    setOnScreenText(''); setTextOverlays([]); setEnhancedUrl(null);
     setBurnSubs(false); setEnhance(false);
     setScheduling(false); setScheduleTime('');
     setError(''); setSuccess(''); setUrl(''); setFile(null);
@@ -72,6 +73,7 @@ export default function NewPost() {
         : await api.processUrl(url.trim(), accountId || null);
       setResult(data);
       setCaption(data.generatedCaption || '');
+      setOnScreenText(data.hookText || '');
       setStep(STEPS.REVIEW);
     } catch (err) {
       setError(err.message);
@@ -171,6 +173,18 @@ export default function NewPost() {
           <video src={previewUrl} controls style={s.video} />
           {enhancedUrl && <div style={s.badge}>✓ Enhanced</div>}
         </div>
+
+        {/* ON-SCREEN TEXT */}
+        {onScreenText && (
+          <div style={s.onScreenBox}>
+            <div style={s.onScreenHeader}>
+              <span style={s.onScreenLabel}>ON-SCREEN TEXT</span>
+              <button onClick={() => navigator.clipboard.writeText(onScreenText)} style={s.copyBtn}>Copy</button>
+            </div>
+            <div style={s.onScreenText}>{onScreenText}</div>
+            <div style={s.hint}>Copy this into CapCut / Premiere / Final Cut as your video overlay text</div>
+          </div>
+        )}
 
         {/* TEXT OVERLAYS */}
         <Section label="Text Overlays">
@@ -388,6 +402,11 @@ const s = {
   video:          { width: '100%', borderRadius: 8, maxHeight: 420, background: '#000', display: 'block' },
   badge:          { display: 'inline-block', marginTop: 6, fontSize: 11, color: '#70ff70', background: '#0d1e0d', border: '1px solid #1a4a1a', borderRadius: 4, padding: '2px 8px' },
   reviewHeader:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  onScreenBox:    { background: '#0a0a14', border: '1px solid #2a2a4a', borderRadius: 10, padding: '14px 16px', marginBottom: 20 },
+  onScreenHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  onScreenLabel:  { fontSize: 10, fontWeight: 800, color: '#7b6fff', letterSpacing: '1.5px', textTransform: 'uppercase' },
+  onScreenText:   { fontSize: 16, color: '#fff', fontWeight: 600, lineHeight: 1.5, whiteSpace: 'pre-wrap' },
+  copyBtn:        { padding: '4px 12px', background: '#1a1a3a', border: '1px solid #3a3a6a', borderRadius: 6, color: '#7b6fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 },
   toggleRow:      { display: 'flex', flexDirection: 'column' },
   overlayCard:    { background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 8, padding: 12, marginBottom: 8 },
   overlayRow:     { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 },
