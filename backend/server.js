@@ -16,12 +16,7 @@ const logger = require('./services/logger');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Write Instagram cookies from env var if provided (used in cloud deployments)
-if (process.env.INSTAGRAM_COOKIES) {
-  const cookiesPath = path.resolve('./cookies.txt');
-  fs.writeFileSync(cookiesPath, process.env.INSTAGRAM_COOKIES);
-  logger.info('Wrote INSTAGRAM_COOKIES to cookies.txt');
-}
+// INSTAGRAM_COOKIES is the old env var name — no longer used (replaced by INSTAGRAM_COOKIES_CONTENT in downloader.js)
 
 // Ensure uploads dir exists
 const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
