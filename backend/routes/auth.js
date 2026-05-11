@@ -1,6 +1,6 @@
-const express = require('express');
-const https   = require('https');
-const axios   = require('axios');
+const express  = require('express');
+const axios    = require('axios');
+const FormData = require('form-data');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
 const logger = require('../services/logger');
@@ -32,45 +32,6 @@ router.get('/debug', (req, res) => {
   });
 });
 
-// Raw HTTPS POST — bypasses axios redirect-handling which can downgrade POST→GET
-function rawPost(urlStr, params) {
-  return new Promise((resolve, reject) => {
-    const body = new URLSearchParams(params).toString();
-    const u    = new URL(urlStr);
-    const opts = {
-      hostname: u.hostname,
-      path:     u.pathname,
-      method:   'POST',
-      headers: {
-        'Content-Type':   'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(body),
-        'Accept':         'application/json',
-      },
-    };
-    const req = https.request(opts, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (res.statusCode >= 400) {
-            const e = new Error(json.error_message || json.error?.message || `HTTP ${res.statusCode}`);
-            e.response = { data: json, status: res.statusCode };
-            reject(e);
-          } else {
-            resolve(json);
-          }
-        } catch {
-          reject(new Error(`Non-JSON from Instagram: ${data.slice(0, 300)}`));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
 // Step 1 — redirect user to Instagram login
 router.get('/instagram', (req, res) => {
   const { appId, callbackUrl } = cfg();
@@ -101,16 +62,21 @@ router.get('/callback', async (req, res) => {
   }
 
   try {
-    // Exchange code → short-lived token (using raw HTTPS to avoid axios redirect issues)
-    logger.info('OAuth step 1: POST to api.instagram.com/oauth/access_token');
-    const tokenData = await rawPost('https://api.instagram.com/oauth/access_token', {
-      client_id:    appId,
-      client_secret: appSecret,
-      grant_type:   'authorization_code',
-      redirect_uri: callbackUrl,
-      code,
-    });
-    const shortToken = tokenData.access_token;
+    // Exchange code → short-lived token
+    // Meta's own curl docs use -F (multipart/form-data), not urlencoded
+    logger.info('OAuth step 1: POST to api.instagram.com/oauth/access_token (multipart)');
+    const form = new FormData();
+    form.append('client_id',     appId);
+    form.append('client_secret', appSecret);
+    form.append('grant_type',    'authorization_code');
+    form.append('redirect_uri',  callbackUrl);
+    form.append('code',          code);
+    const tokenRes = await axios.post(
+      'https://api.instagram.com/oauth/access_token',
+      form,
+      { headers: form.getHeaders() }
+    );
+    const shortToken = tokenRes.data.access_token;
     logger.info('OAuth step 1 OK, got short token');
 
     // Exchange → long-lived token (60 days)
