@@ -42,6 +42,7 @@ function newBox() {
 // ── Fullscreen modal text-on-video editor ─────────────────────────────────────
 function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   const containerRef = useRef();
+  const taRef        = useRef();
   const [selected, setSelected] = useState(null);
   const [dragging, setDragging] = useState(null);
 
@@ -58,6 +59,16 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
 
   function updateBox(id, key, val) {
     onChange(prev => prev.map(b => b.id === id ? { ...b, [key]: val } : b));
+  }
+
+  function insertLineBreak() {
+    const ta = taRef.current;
+    if (!ta || !sel) return;
+    const start = ta.selectionStart ?? sel.text.length;
+    const end   = ta.selectionEnd   ?? sel.text.length;
+    const next  = sel.text.slice(0, start) + '\n' + sel.text.slice(end);
+    updateBox(sel.id, 'text', next);
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + 1, start + 1); });
   }
 
   function handlePointerDown(e, id) {
@@ -146,54 +157,64 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
 
       {/* Edit panel — only when a box is selected */}
       {sel && (
-        <div style={{ background: '#0d0d14', borderTop: '1px solid #2a2a4a', padding: '12px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+        <div style={{ background: '#0a0a12', borderTop: '2px solid #2a2a4a', padding: '14px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+
+          {/* Row 1: textarea + action buttons */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'flex-start' }}>
             <textarea
+              ref={taRef}
               autoFocus
               value={sel.text}
               onChange={e => updateBox(sel.id, 'text', e.target.value)}
-              placeholder={'Line 1\nLine 2\nLine 3'}
+              placeholder="Type text here… (supports emoji 🔥)"
               rows={3}
-              style={{ flex: 1, padding: '9px 11px', background: '#111', border: '1px solid #333', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.4 }}
+              style={{ flex: 1, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 8, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }}
             />
-            <button onClick={() => removeBox(sel.id)} style={{ background: 'transparent', border: '1px solid #4a1a1a', borderRadius: 6, color: '#ff7070', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>✕</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <button onClick={insertLineBreak} title="Insert line break at cursor"
+                style={{ padding: '10px 12px', background: '#1a1a3a', border: '1px solid #4a4a7a', borderRadius: 7, color: '#aaa', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>↵</button>
+              <button onClick={() => removeBox(sel.id)}
+                style={{ padding: '10px 12px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>✕</button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-            {/* Background */}
-            <span style={{ fontSize: 11, color: '#555', marginRight: 2 }}>BG:</span>
+          {/* Row 2: BG + Size */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#666', minWidth: 20 }}>BG</span>
             {[{ v: 'none', label: 'None' }, { v: 'black', label: '■ Black' }, { v: 'white', label: '□ White' }].map(bg => (
-              <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)} style={{ padding: '5px 12px', borderRadius: 6, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1px solid #333', background: sel.bg === bg.v ? '#1a1a3a' : '#111', color: '#ccc', cursor: 'pointer', fontSize: 12, fontWeight: sel.bg === bg.v ? 700 : 400 }}>{bg.label}</button>
-            ))}
-
-            {/* Color swatches (only shown when bg is none) */}
-            {sel.bg === 'none' && (
-              <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
-                {COLORS.map(c => (
-                  <button key={c.value} title={c.label} onClick={() => updateBox(sel.id, 'color', c.value)} style={{ width: 22, height: 22, borderRadius: '50%', background: c.hex, border: sel.color === c.value ? '2.5px solid #fff' : '1px solid #444', cursor: 'pointer', flexShrink: 0 }} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Font size — manual number input */}
-            <span style={{ fontSize: 11, color: '#555' }}>Size:</span>
-            <input
-              type="number" min={8} max={200}
-              value={sel.fontSize || 44}
-              onChange={e => updateBox(sel.id, 'fontSize', Math.max(8, Math.min(200, Number(e.target.value) || 44)))}
-              style={{ width: 58, padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none' }}
-            />
-
-            {/* Alignment */}
-            <span style={{ fontSize: 11, color: '#555', marginLeft: 6 }}>Align:</span>
-            {[['left','◀ Left'],['center','≡ Center'],['right','Right ▶']].map(([val, label]) => (
-              <button key={val} onClick={() => updateBox(sel.id, 'align', val)}
-                style={{ padding: '5px 10px', borderRadius: 6, border: (sel.align || 'center') === val ? '2px solid #7b6fff' : '1px solid #333', background: (sel.align || 'center') === val ? '#1a1a3a' : '#111', color: '#ccc', cursor: 'pointer', fontSize: 11, fontWeight: (sel.align || 'center') === val ? 700 : 400 }}>
-                {label}
+              <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)}
+                style={{ padding: '7px 14px', borderRadius: 7, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.v ? '#1e1e40' : '#141420', color: sel.bg === bg.v ? '#fff' : '#888', cursor: 'pointer', fontSize: 13, fontWeight: sel.bg === bg.v ? 700 : 400 }}>
+                {bg.label}
               </button>
             ))}
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: '#666' }}>Size</span>
+            <input type="number" min={8} max={200}
+              value={sel.fontSize || 44}
+              onChange={e => updateBox(sel.id, 'fontSize', Math.max(8, Math.min(200, Number(e.target.value) || 44)))}
+              style={{ width: 62, padding: '7px 8px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none', textAlign: 'center' }}
+            />
+            <span style={{ fontSize: 11, color: '#444' }}>px</span>
+          </div>
+
+          {/* Row 3: Align + Color swatches */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#666', minWidth: 20 }}>Align</span>
+            {[['left','←'],['center','≡'],['right','→']].map(([val, icon]) => (
+              <button key={val} onClick={() => updateBox(sel.id, 'align', val)}
+                style={{ width: 38, height: 34, borderRadius: 7, border: (sel.align || 'center') === val ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: (sel.align || 'center') === val ? '#1e1e40' : '#141420', color: (sel.align || 'center') === val ? '#fff' : '#777', cursor: 'pointer', fontSize: 17 }}>
+                {icon}
+              </button>
+            ))}
+            {sel.bg === 'none' && (
+              <>
+                <div style={{ width: 1, height: 24, background: '#2a2a3a', margin: '0 4px' }} />
+                {COLORS.map(c => (
+                  <button key={c.value} title={c.label} onClick={() => updateBox(sel.id, 'color', c.value)}
+                    style={{ width: 26, height: 26, borderRadius: '50%', background: c.hex, border: sel.color === c.value ? '2.5px solid #fff' : '1.5px solid #333', cursor: 'pointer', flexShrink: 0 }} />
+                ))}
+              </>
+            )}
           </div>
         </div>
       )}

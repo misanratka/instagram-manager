@@ -69,7 +69,16 @@ async function computeCropFilter(inputPath, cropRatio) {
   return `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
 }
 
-const FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+// Prefer an explicit bold font; fall back to fontconfig name so the OS can
+// provide emoji fallback glyphs (Noto Color Emoji etc.) when available.
+const FONT_FILE = (() => {
+  const candidates = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+  ];
+  return candidates.find(p => fs.existsSync(p)) || null;
+})();
+const FONT_ATTR = FONT_FILE ? `fontfile='${FONT_FILE}'` : `font='DejaVu Sans Bold'`;
 
 const NAMED_POSITIONS = {
   'top-left':    { x: '20',            y: '20' },
@@ -151,7 +160,7 @@ function buildSingleLine(overlay, yOffsetPx) {
     boxPart = ':borderw=2:bordercolor=black@0.8';
   }
 
-  let filter = `drawtext=fontfile='${FONT}':text='${escaped}':fontsize=${size}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
+  let filter = `drawtext=${FONT_ATTR}:text='${escaped}':fontsize=${size}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
   if (overlay.startTime > 0 || overlay.endTime > 0) {
     filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
   }
