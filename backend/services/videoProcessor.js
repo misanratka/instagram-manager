@@ -99,7 +99,7 @@ function buildCoverBox(overlay) {
   const numSpaces = Math.max(overlay.text.length, 1);
   const boxW = Math.round(numSpaces * size * 0.5) + 20;
   const boxH = Math.round(size * 1.6);
-  const color = overlay.bg === 'white' ? 'white@0.92' : 'black@0.85';
+  const color = overlay.bg === 'white' ? 'white' : 'black';
 
   let xExpr, yExpr;
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
@@ -151,10 +151,10 @@ function buildSingleLine(overlay, yOffsetPx) {
   let fontcolor, boxPart;
   if (overlay.bg === 'black') {
     fontcolor = 'white';
-    boxPart = ':box=1:boxcolor=black@0.85:boxborderw=10';
+    boxPart = ':box=1:boxcolor=black:boxborderw=10';
   } else if (overlay.bg === 'white') {
     fontcolor = '#111111';
-    boxPart = ':box=1:boxcolor=white@0.92:boxborderw=10';
+    boxPart = ':box=1:boxcolor=white:boxborderw=10';
   } else {
     fontcolor = overlay.color || 'white';
     boxPart = ':borderw=2:bordercolor=black@0.8';

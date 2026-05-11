@@ -41,10 +41,14 @@ function newBox() {
 
 // ── Fullscreen modal text-on-video editor ─────────────────────────────────────
 function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
-  const containerRef = useRef();
-  const taRef        = useRef();
-  const [selected, setSelected] = useState(null);
-  const [dragging, setDragging] = useState(null);
+  const containerRef  = useRef();
+  const taRef         = useRef();
+  const boxesRef      = useRef(textBoxes);
+  const [selected,  setSelected]  = useState(null);
+  const [dragging,  setDragging]  = useState(null); // { id }
+  const [pinching,  setPinching]  = useState(null); // { id, startDist, startSize }
+
+  useEffect(() => { boxesRef.current = textBoxes; });
 
   function addBox() {
     const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', fontSize: 44, bg: 'none', align: 'center', startTime: 0, endTime: 0 };
@@ -71,41 +75,76 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + 1, start + 1); });
   }
 
+  function touchDist(t) {
+    const dx = t[0].clientX - t[1].clientX;
+    const dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   function handlePointerDown(e, id) {
     e.preventDefault();
     e.stopPropagation();
     setSelected(id);
-    setDragging({ id });
+    const t = e.touches;
+    if (t && t.length >= 2) {
+      const box = boxesRef.current.find(b => b.id === id);
+      setPinching({ id, startDist: touchDist(t), startSize: box?.fontSize || 44 });
+      setDragging(null);
+    } else {
+      setDragging({ id });
+      setPinching(null);
+    }
   }
 
   useEffect(() => {
-    if (!dragging) return;
-    function clientPos(e) {
-      return e.touches ? { cx: e.touches[0].clientX, cy: e.touches[0].clientY } : { cx: e.clientX, cy: e.clientY };
-    }
+    if (!dragging && !pinching) return;
+
     function onMove(e) {
       e.preventDefault();
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const { cx, cy } = clientPos(e);
-      onChange(prev => prev.map(b => b.id === dragging.id ? {
-        ...b,
-        xPct: Math.max(2, Math.min(98, ((cx - rect.left) / rect.width) * 100)),
-        yPct: Math.max(2, Math.min(98, ((cy - rect.top) / rect.height) * 100)),
-      } : b));
+      const t = e.touches;
+      if (t && t.length >= 2) {
+        const dist = touchDist(t);
+        if (pinching) {
+          const newSize = Math.max(8, Math.min(200, Math.round(pinching.startSize * (dist / pinching.startDist))));
+          onChange(prev => prev.map(b => b.id === pinching.id ? { ...b, fontSize: newSize } : b));
+        } else if (dragging) {
+          // second finger landed — switch to pinch
+          const box = boxesRef.current.find(b => b.id === dragging.id);
+          setPinching({ id: dragging.id, startDist: dist, startSize: box?.fontSize || 44 });
+          setDragging(null);
+        }
+      } else if (dragging) {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const cx = t ? t[0].clientX : e.clientX;
+        const cy = t ? t[0].clientY : e.clientY;
+        onChange(prev => prev.map(b => b.id === dragging.id ? {
+          ...b,
+          xPct: Math.max(2, Math.min(98, ((cx - rect.left) / rect.width) * 100)),
+          yPct: Math.max(2, Math.min(98, ((cy - rect.top) / rect.height) * 100)),
+        } : b));
+      }
     }
-    function onUp() { setDragging(null); }
+
+    function onUp(e) {
+      const left = e.touches?.length ?? 0;
+      if (left === 0) { setDragging(null); setPinching(null); }
+      else if (left === 1 && pinching) { setDragging({ id: pinching.id }); setPinching(null); }
+    }
+
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onUp);
+    window.addEventListener('mouseup',   onUp);
+    window.addEventListener('touchmove', onMove,  { passive: false });
+    window.addEventListener('touchend',   onUp);
+    window.addEventListener('touchcancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('mousemove',   onMove);
+      window.removeEventListener('mouseup',     onUp);
+      window.removeEventListener('touchmove',   onMove);
+      window.removeEventListener('touchend',    onUp);
+      window.removeEventListener('touchcancel', onUp);
     };
-  }, [dragging]);
+  }, [dragging, pinching, onChange]);
 
   const sel = textBoxes.find(b => b.id === selected);
 
@@ -119,8 +158,8 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       textAlign: box.align || 'center',
       outline: selected === box.id ? '2px dashed rgba(255,255,255,0.7)' : 'none',
     };
-    if (box.bg === 'black') return { ...base, background: 'rgba(0,0,0,0.85)', color: '#fff', textShadow: 'none' };
-    if (box.bg === 'white') return { ...base, background: 'rgba(255,255,255,0.92)', color: '#111', textShadow: 'none' };
+    if (box.bg === 'black') return { ...base, background: '#000', color: '#fff', textShadow: 'none' };
+    if (box.bg === 'white') return { ...base, background: '#fff', color: '#111', textShadow: 'none' };
     return { ...base, background: 'transparent', color: box.color === 'black' ? '#111' : (box.color || 'white'), textShadow: '1px 1px 4px rgba(0,0,0,1),-1px -1px 4px rgba(0,0,0,1)' };
   }
 
@@ -178,7 +217,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
             </div>
           </div>
 
-          {/* Row 2: BG + Size */}
+          {/* Row 2: BG */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: '#666', minWidth: 20 }}>BG</span>
             {[{ v: 'none', label: 'None' }, { v: 'black', label: '■ Black' }, { v: 'white', label: '□ White' }].map(bg => (
@@ -187,14 +226,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                 {bg.label}
               </button>
             ))}
-            <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 11, color: '#666' }}>Size</span>
-            <input type="number" min={8} max={200}
-              value={sel.fontSize || 44}
-              onChange={e => updateBox(sel.id, 'fontSize', Math.max(8, Math.min(200, Number(e.target.value) || 44)))}
-              style={{ width: 62, padding: '7px 8px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none', textAlign: 'center' }}
-            />
-            <span style={{ fontSize: 11, color: '#444' }}>px</span>
+            <span style={{ fontSize: 11, color: '#444', marginLeft: 'auto' }}>Pinch 2 fingers to resize</span>
           </div>
 
           {/* Row 3: Align + Color swatches */}
