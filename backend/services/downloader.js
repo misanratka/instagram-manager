@@ -10,24 +10,37 @@ function getUploadDir() {
   return dir;
 }
 
-// Returns extra yt-dlp args for authentication.
-// Prefers cookies.txt (works with browser open); falls back to --cookies-from-browser (browser must be closed).
+// Write INSTAGRAM_COOKIES_CONTENT env var to a file once at startup
+const IG_COOKIES_PATH = path.resolve(__dirname, '..', 'ig_cookies.txt');
+(function initCookies() {
+  const content = process.env.INSTAGRAM_COOKIES_CONTENT;
+  if (content && content.trim()) {
+    try {
+      fs.writeFileSync(IG_COOKIES_PATH, content.trim(), 'utf8');
+      logger.info('Instagram cookies written from INSTAGRAM_COOKIES_CONTENT env var');
+    } catch (e) {
+      logger.warn('Failed to write Instagram cookies file:', e.message);
+    }
+  }
+})();
+
 function cookieArgs() {
-  // 1. Explicit file from env
+  // 1. Cookies written from INSTAGRAM_COOKIES_CONTENT env var
+  if (fs.existsSync(IG_COOKIES_PATH)) {
+    return ['--cookies', IG_COOKIES_PATH];
+  }
+  // 2. Explicit file path from env
   if (process.env.COOKIES_FILE) {
     const p = path.resolve(process.env.COOKIES_FILE);
     if (fs.existsSync(p)) { logger.info('Auth: cookies file from COOKIES_FILE'); return ['--cookies', p]; }
     logger.warn(`COOKIES_FILE not found: ${p}`);
   }
-  // 2. cookies.txt dropped next to server.js
+  // 3. cookies.txt dropped next to server.js
   const defaultFile = path.resolve(__dirname, '..', 'cookies.txt');
   if (fs.existsSync(defaultFile)) {
     logger.info('Auth: backend/cookies.txt'); return ['--cookies', defaultFile];
   }
-  // 3. Browser cookies (only works when that browser is fully closed)
-  const browser = process.env.COOKIES_BROWSER || 'chrome';
-  logger.info(`Auth: --cookies-from-browser ${browser}`);
-  return ['--cookies-from-browser', browser];
+  return [];
 }
 
 function isInstagramUrl(url) {
@@ -39,16 +52,25 @@ function isInstagramUrl(url) {
 
 function downloadVideo(url) {
   return new Promise((resolve, reject) => {
-    if (isInstagramUrl(url)) {
-      return reject(new Error(
-        'Instagram videos cannot be downloaded directly on the server (Instagram requires login). ' +
-        'Please download the Reel to your device and upload it using the "Upload Video File" option instead.'
-      ));
-    }
-
     const uploadDir = getUploadDir();
     const filename = `${uuidv4()}.mp4`;
     const outputPath = path.join(uploadDir, filename);
+
+    const hasCookies = fs.existsSync(IG_COOKIES_PATH) ||
+                       (process.env.COOKIES_FILE && fs.existsSync(path.resolve(process.env.COOKIES_FILE))) ||
+                       fs.existsSync(path.resolve(__dirname, '..', 'cookies.txt'));
+
+    if (isInstagramUrl(url) && !hasCookies) {
+      return reject(new Error(
+        'Instagram cookies not configured. To enable Instagram URL downloads:\n' +
+        '1. Install the "Get cookies.txt LOCALLY" extension in Chrome\n' +
+        '2. Go to instagram.com while logged in\n' +
+        '3. Click the extension and export cookies\n' +
+        '4. Copy the file contents\n' +
+        '5. Add it as INSTAGRAM_COOKIES_CONTENT environment variable on Render\n\n' +
+        'Or download the Reel to your device and use "Upload Video File" instead.'
+      ));
+    }
 
     const args = [
       url,
@@ -67,7 +89,10 @@ function downloadVideo(url) {
     execFile('yt-dlp', args, { timeout: 300000 }, (err) => {
       if (err) {
         logger.error('yt-dlp error:', err.message);
-        return reject(new Error(`Download failed: ${err.message}`));
+        const msg = isInstagramUrl(url)
+          ? 'Instagram download failed. Your cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.'
+          : `Download failed: ${err.message}`;
+        return reject(new Error(msg));
       }
       if (!fs.existsSync(outputPath)) {
         return reject(new Error('Download finished but output file not found. Try a different URL.'));
@@ -82,7 +107,9 @@ function downloadVideo(url) {
 
 function getVideoMetadata(url) {
   return new Promise((resolve, reject) => {
-    if (isInstagramUrl(url)) return resolve({ title: '', description: '', duration: 0 });
+    if (isInstagramUrl(url) && !fs.existsSync(IG_COOKIES_PATH)) {
+      return resolve({ title: '', description: '', duration: 0 });
+    }
     const args = ['--dump-json', '--no-download', '--no-playlist', ...cookieArgs(), url];
     execFile('yt-dlp', args, { timeout: 30000 }, (err, stdout) => {
       if (err) return resolve({ title: '', description: '', duration: 0 });
