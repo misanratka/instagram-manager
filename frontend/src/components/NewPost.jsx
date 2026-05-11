@@ -402,15 +402,19 @@ export default function NewPost() {
         {success && <div style={s.successBox}>{success}</div>}
 
         {/* ON-SCREEN TEXT */}
-        {onScreenText && (
-          <div style={s.onScreenBox}>
-            <div style={s.onScreenHeader}>
-              <span style={s.onScreenLabel}>ON-SCREEN TEXT (for CapCut / Premiere)</span>
-              <button onClick={() => navigator.clipboard.writeText(onScreenText)} style={s.copyBtn}>Copy</button>
-            </div>
-            <div style={s.onScreenText}>{onScreenText}</div>
+        <div style={s.onScreenBox}>
+          <div style={s.onScreenHeader}>
+            <span style={s.onScreenLabel}>ON-SCREEN TEXT (for CapCut / Premiere)</span>
+            <button onClick={() => navigator.clipboard.writeText(onScreenText)} style={s.copyBtn}>Copy</button>
           </div>
-        )}
+          <textarea
+            value={onScreenText}
+            onChange={e => setOnScreenText(e.target.value)}
+            rows={2}
+            placeholder="Add on-screen text…"
+            style={{ ...s.textarea, fontSize: 16, fontWeight: 600, lineHeight: 1.5, background: 'transparent', border: '1px solid #2a2a4a', color: '#fff', resize: 'vertical' }}
+          />
+        </div>
 
         {/* INSTAGRAM CAPTION MODE — no video downloaded */}
         {isIgCaption && (
