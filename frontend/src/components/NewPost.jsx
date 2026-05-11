@@ -147,12 +147,13 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       {sel && (
         <div style={{ background: '#0d0d14', borderTop: '1px solid #2a2a4a', padding: '12px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
-            <input
+            <textarea
               autoFocus
               value={sel.text}
               onChange={e => updateBox(sel.id, 'text', e.target.value)}
-              placeholder="Type your text…"
-              style={{ flex: 1, padding: '9px 11px', background: '#111', border: '1px solid #333', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none' }}
+              placeholder={'Line 1\nLine 2\nLine 3'}
+              rows={3}
+              style={{ flex: 1, padding: '9px 11px', background: '#111', border: '1px solid #333', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.4 }}
             />
             <button onClick={() => removeBox(sel.id)} style={{ background: 'transparent', border: '1px solid #4a1a1a', borderRadius: 6, color: '#ff7070', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>✕</button>
           </div>

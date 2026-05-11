@@ -111,15 +111,8 @@ function buildCoverBox(overlay) {
   return filter;
 }
 
-function buildDrawtext(overlay) {
-  if (!overlay.text) return null;
-
-  // Space-only text with a background = solid cover rectangle (hides underlying video text)
-  if (overlay.bg !== 'none' && overlay.text.trim() === '') {
-    return buildCoverBox(overlay);
-  }
-
-  const size = SIZES[overlay.size] || 30;
+function buildSingleLine(overlay, yOffsetPx) {
+  const size = SIZES[overlay.size] || 44;
   const escaped = overlay.text
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "'")
@@ -132,11 +125,14 @@ function buildDrawtext(overlay) {
     const xp = (Number(overlay.xPct) / 100).toFixed(6);
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
     xExpr = `(w*${xp})-(text_w/2)`;
-    yExpr = `(h*${yp})-(text_h/2)`;
+    const yBase = `(h*${yp})`;
+    yExpr = yOffsetPx === 0
+      ? `${yBase}-(text_h/2)`
+      : `${yBase}+(${yOffsetPx})-(text_h/2)`;
   } else {
     const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
     xExpr = pos.x;
-    yExpr = pos.y;
+    yExpr = yOffsetPx === 0 ? pos.y : `(${pos.y})+(${yOffsetPx})`;
   }
 
   let fontcolor, boxPart;
@@ -156,6 +152,29 @@ function buildDrawtext(overlay) {
     filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
   }
   return filter;
+}
+
+function buildDrawtext(overlay) {
+  if (!overlay.text) return null;
+
+  // Space-only text with a background = solid cover rectangle (hides underlying video text)
+  if (overlay.bg !== 'none' && overlay.text.trim() === '') {
+    return buildCoverBox(overlay);
+  }
+
+  const lines = overlay.text.split('\n');
+  const size  = SIZES[overlay.size] || 44;
+  const lineH = Math.round(size * 1.4);
+
+  const filters = lines.map((lineText, i) => {
+    const text = lineText || (overlay.bg !== 'none' ? ' ' : null);
+    if (!text) return null;
+    // Center the whole block at the anchor point; each line offset from that center
+    const yOffsetPx = Math.round((i - (lines.length - 1) / 2) * lineH);
+    return buildSingleLine({ ...overlay, text }, yOffsetPx);
+  }).filter(Boolean);
+
+  return filters.join(',') || null;
 }
 
 // Convert SRT segments to word-by-word ASS subtitle string for motion styles
