@@ -37,25 +37,31 @@ router.get('/callback', async (req, res) => {
 
   try {
     // Exchange code → short-lived token
+    logger.info('OAuth step 1: exchanging code for short token');
     const tokenRes = await axios.post(
       'https://api.instagram.com/oauth/access_token',
       new URLSearchParams({ client_id: appId, client_secret: appSecret, grant_type: 'authorization_code', redirect_uri: callbackUrl, code }).toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
     const shortToken = tokenRes.data.access_token;
+    logger.info('OAuth step 1 OK, got short token');
 
     // Exchange → long-lived token (60 days)
+    logger.info('OAuth step 2: exchanging for long-lived token');
     const longRes = await axios.get('https://graph.instagram.com/access_token', {
       params: { grant_type: 'ig_exchange_token', client_id: appId, client_secret: appSecret, access_token: shortToken }
     });
     const longToken = longRes.data.access_token;
+    logger.info('OAuth step 2 OK, got long token');
 
-    // Get real user ID and username from /me (never trust token exchange user_id — it can return the App ID)
+    // Get real user ID and username from /me
+    logger.info('OAuth step 3: fetching /me');
     const meRes = await axios.get('https://graph.instagram.com/v19.0/me', {
       params: { fields: 'id,username,name', access_token: longToken }
     });
     const igUserId = String(meRes.data.id);
     const igName   = meRes.data.username || meRes.data.name || 'Instagram Account';
+    logger.info(`OAuth step 3 OK: user=${igName} id=${igUserId}`);
 
     // Save or update account
     const existing = await getDB().get('SELECT id FROM accounts WHERE ig_user_id=$1', [igUserId]);
@@ -71,7 +77,8 @@ router.get('/callback', async (req, res) => {
     logger.info(`Instagram account connected: @${igName}`);
     res.redirect(`${frontendUrl}?auth_success=${encodeURIComponent(igName)}`);
   } catch (err) {
-    logger.error('OAuth callback failed:', err.message);
+    logger.error('OAuth callback failed at step:', err.message);
+    logger.error('OAuth error response:', JSON.stringify(err.response?.data));
     const msg = err.response?.data?.error_message || err.response?.data?.error?.message || err.message;
     res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(msg)}`);
   }
