@@ -49,9 +49,16 @@ router.get('/callback', async (req, res) => {
   try {
     // Exchange code → short-lived token
     logger.info('OAuth step 1: exchanging code for short token');
+    logger.info(`OAuth step 1 params: client_id=${appId} redirect_uri=${callbackUrl} code_len=${code?.length}`);
+    const body = new URLSearchParams();
+    body.append('client_id', appId);
+    body.append('client_secret', appSecret);
+    body.append('grant_type', 'authorization_code');
+    body.append('redirect_uri', callbackUrl);
+    body.append('code', code);
     const tokenRes = await axios.post(
       'https://api.instagram.com/oauth/access_token',
-      new URLSearchParams({ client_id: appId, client_secret: appSecret, grant_type: 'authorization_code', redirect_uri: callbackUrl, code }).toString(),
+      body,
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
     const shortToken = tokenRes.data.access_token;
@@ -88,13 +95,15 @@ router.get('/callback', async (req, res) => {
     logger.info(`Instagram account connected: @${igName}`);
     res.redirect(`${frontendUrl}?auth_success=${encodeURIComponent(igName)}`);
   } catch (err) {
-    logger.error('OAuth callback failed at step:', err.message);
-    logger.error('OAuth error response:', JSON.stringify(err.response?.data));
-    const msg = err.response?.data?.error_message || err.response?.data?.error?.message || err.message;
-    const friendlyMsg = (msg.toLowerCase().includes('method type') || msg.toLowerCase().includes('unsupported request'))
-      ? 'Instagram rejected the login. Your Meta app is likely in Development mode — go to Meta App Dashboard → App Roles → Test Users and add the second Instagram account as a Test User. Or switch the app to Live mode.'
-      : msg;
-    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(friendlyMsg)}`);
+    logger.error('OAuth callback error:', err.message);
+    logger.error('OAuth error response data:', JSON.stringify(err.response?.data));
+    logger.error('OAuth error status:', err.response?.status);
+    const rawMsg = err.response?.data?.error_message
+      || err.response?.data?.error?.message
+      || err.response?.data?.message
+      || err.message;
+    const detail = err.response?.data ? ` [API: ${JSON.stringify(err.response.data)}]` : '';
+    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(rawMsg + detail)}`);
   }
 });
 
