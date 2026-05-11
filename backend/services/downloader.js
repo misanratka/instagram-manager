@@ -30,8 +30,22 @@ function cookieArgs() {
   return ['--cookies-from-browser', browser];
 }
 
+function isInstagramUrl(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return host === 'instagram.com';
+  } catch { return false; }
+}
+
 function downloadVideo(url) {
   return new Promise((resolve, reject) => {
+    if (isInstagramUrl(url)) {
+      return reject(new Error(
+        'Instagram videos cannot be downloaded directly on the server (Instagram requires login). ' +
+        'Please download the Reel to your device and upload it using the "Upload Video File" option instead.'
+      ));
+    }
+
     const uploadDir = getUploadDir();
     const filename = `${uuidv4()}.mp4`;
     const outputPath = path.join(uploadDir, filename);
@@ -68,6 +82,7 @@ function downloadVideo(url) {
 
 function getVideoMetadata(url) {
   return new Promise((resolve, reject) => {
+    if (isInstagramUrl(url)) return resolve({ title: '', description: '', duration: 0 });
     const args = ['--dump-json', '--no-download', '--no-playlist', ...cookieArgs(), url];
     execFile('yt-dlp', args, { timeout: 30000 }, (err, stdout) => {
       if (err) return resolve({ title: '', description: '', duration: 0 });
