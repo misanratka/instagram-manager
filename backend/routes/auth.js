@@ -71,24 +71,28 @@ router.get('/callback', async (req, res) => {
       redirect_uri:  callbackUrl,
       code,
     });
-    let shortToken;
+    let shortToken, tokenUserId;
     try {
       const tokenRes = await axios.post(
         'https://api.instagram.com/oauth/access_token',
         bodyParams.toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxRedirects: 0 }
       );
-      shortToken = tokenRes.data.access_token;
-      logger.info('OAuth step 1 OK, got short token');
+      shortToken  = tokenRes.data.access_token;
+      // Business Login step 1 response always includes user_id
+      tokenUserId = tokenRes.data.user_id ? String(tokenRes.data.user_id) : null;
+      logger.info(`OAuth step 1 OK: user_id_present=${!!tokenUserId} keys=${Object.keys(tokenRes.data).join(',')}`);
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
       logger.error(`OAuth step 1 FAILED status=${e.response?.status}: ${JSON.stringify(e.response?.data)}`);
       throw new Error(`[Step1-token] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
     }
 
-    // Step 2 — extend to long-lived token (60 days) via ig_exchange_token.
-    // Pass access_token as query param (it's the token being exchanged, not auth).
-    // client_id is NOT required for this endpoint per Meta docs.
+    if (!tokenUserId) {
+      throw new Error('[Step1-token] user_id missing from token response — cannot identify account');
+    }
+
+    // Step 2 — extend to long-lived token (60 days). Best-effort; fall back to short-lived.
     let longToken = shortToken;
     try {
       const longRes = await axios.get('https://graph.instagram.com/access_token', {
@@ -101,25 +105,21 @@ router.get('/callback', async (req, res) => {
       logger.warn(`OAuth step 2 failed (ig_exchange_token): ${JSON.stringify(e.response?.data)} — using short-lived token`);
     }
 
-    // Step 3 — get user ID and username.
-    // Use Authorization: Bearer header — Meta deprecated ?access_token= query param
-    // and newer endpoints return "Unsupported request - method type: get" when the
-    // old query-param form is used.
-    logger.info('OAuth step 3: GET graph.instagram.com/me (Bearer)');
-    let igUserId, igName;
+    // Step 3 — fetch username. The user_id came from step 1 so this is best-effort only;
+    // if graph.instagram.com is still rejecting the request, we fall back to a placeholder
+    // the user can rename in Account Settings.
+    const igUserId = tokenUserId;
+    let igName = `ig_${igUserId}`;
     try {
-      const meRes = await axios.get('https://graph.instagram.com/me', {
+      const meRes = await axios.get(`https://graph.instagram.com/${igUserId}`, {
         params:  { fields: 'id,username' },
         headers: { Authorization: `Bearer ${longToken}` },
         maxRedirects: 0,
       });
-      igUserId = String(meRes.data.id);
-      igName   = meRes.data.username || 'Instagram Account';
+      igName = meRes.data.username || igName;
       logger.info(`OAuth step 3 OK: user=${igName} id=${igUserId}`);
     } catch (e) {
-      const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
-      logger.error(`OAuth step 3 FAILED status=${e.response?.status}: ${JSON.stringify(e.response?.data)}`);
-      throw new Error(`[Step3-me] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
+      logger.warn(`OAuth step 3 username fetch failed: ${JSON.stringify(e.response?.data)} — using placeholder`);
     }
 
     // Save or update account
