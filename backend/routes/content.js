@@ -55,9 +55,13 @@ router.post('/process-url', async (req, res, next) => {
     const isInstagram = /instagram\.com/.test(url);
     const meta = await getVideoMetadata(url).catch(() => ({ title: '', description: '' }));
 
+    // Always try to download the video; for Instagram, a failed download is non-fatal
     let videoFile = null;
-    if (!isInstagram) {
+    try {
       videoFile = await downloadVideo(url);
+    } catch (downloadErr) {
+      if (!isInstagram) throw downloadErr; // non-Instagram: download failure is a hard error
+      logger.warn('Instagram video download failed, continuing with caption only:', downloadErr.message);
     }
 
     const videoPath = videoFile ? videoFile.path : null;
@@ -81,7 +85,7 @@ router.post('/process-url', async (req, res, next) => {
       hookText,
       srtContent,
       onScreenSuggestions,
-      instagramUrl: isInstagram ? url : null,
+      instagramUrl: isInstagram && !videoFile ? url : null,
     });
   } catch (err) { next(err); }
 });

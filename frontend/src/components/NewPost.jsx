@@ -383,8 +383,8 @@ export default function NewPost() {
     return (
       <div style={s.center}>
         <div style={s.spinner} />
-        <div style={s.processingTitle}>{url && /instagram\.com/.test(url) ? 'Rewriting caption…' : 'Processing video…'}</div>
-        <div style={s.hint}>{url && /instagram\.com/.test(url) ? 'Fetching the original caption and rewriting it with AI.' : 'Downloading and generating caption. This may take a moment.'}</div>
+        <div style={s.processingTitle}>Processing video…</div>
+        <div style={s.hint}>Downloading video and rewriting caption with AI. This may take a moment.</div>
       </div>
     );
   }
