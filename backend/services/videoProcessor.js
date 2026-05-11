@@ -86,9 +86,9 @@ const NAMED_POSITIONS = {
 const SIZES = { small: 20, medium: 30, large: 44, xl: 60 };
 
 function buildDrawtext(overlay) {
-  if (!overlay.text || !overlay.text.trim()) return null;
+  if (!overlay.text) return null;
   const size = SIZES[overlay.size] || 30;
-  const escaped = overlay.text.trim()
+  const escaped = overlay.text
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "'")
     .replace(/:/g, '\\:')

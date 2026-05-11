@@ -62,39 +62,62 @@ router.get('/callback', async (req, res) => {
   }
 
   try {
-    // Exchange code → short-lived token
-    // Meta's own curl docs use -F (multipart/form-data), not urlencoded
-    logger.info('OAuth step 1: POST to api.instagram.com/oauth/access_token (multipart)');
-    const form = new FormData();
-    form.append('client_id',     appId);
-    form.append('client_secret', appSecret);
-    form.append('grant_type',    'authorization_code');
-    form.append('redirect_uri',  callbackUrl);
-    form.append('code',          code);
-    const tokenRes = await axios.post(
-      'https://api.instagram.com/oauth/access_token',
-      form,
-      { headers: form.getHeaders() }
-    );
-    const shortToken = tokenRes.data.access_token;
-    logger.info('OAuth step 1 OK, got short token');
-
-    // Exchange → long-lived token (60 days)
-    logger.info('OAuth step 2: exchanging for long-lived token');
-    const longRes = await axios.get('https://graph.instagram.com/access_token', {
-      params: { grant_type: 'ig_exchange_token', client_id: appId, client_secret: appSecret, access_token: shortToken }
+    // Step 1 — exchange code → short-lived token (URL-encoded body, no redirect following)
+    logger.info('OAuth step 1: POST api.instagram.com/oauth/access_token (urlencoded)');
+    const bodyParams = new URLSearchParams({
+      client_id:     appId,
+      client_secret: appSecret,
+      grant_type:    'authorization_code',
+      redirect_uri:  callbackUrl,
+      code,
     });
-    const longToken = longRes.data.access_token;
-    logger.info('OAuth step 2 OK, got long token');
+    let shortToken;
+    try {
+      const tokenRes = await axios.post(
+        'https://api.instagram.com/oauth/access_token',
+        bodyParams.toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxRedirects: 0 }
+      );
+      shortToken = tokenRes.data.access_token;
+      logger.info('OAuth step 1 OK, got short token');
+    } catch (e) {
+      const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
+      logger.error(`OAuth step 1 FAILED status=${e.response?.status}: ${JSON.stringify(e.response?.data)}`);
+      throw new Error(`[Step1-token] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
+    }
 
-    // Get real user ID and username from /me
-    logger.info('OAuth step 3: fetching /me');
-    const meRes = await axios.get('https://graph.instagram.com/v22.0/me', {
-      params: { fields: 'id,username,name', access_token: longToken }
-    });
-    const igUserId = String(meRes.data.id);
-    const igName   = meRes.data.username || meRes.data.name || 'Instagram Account';
-    logger.info(`OAuth step 3 OK: user=${igName} id=${igUserId}`);
+    // Step 2 — exchange short-lived → long-lived token (60 days)
+    logger.info('OAuth step 2: GET graph.instagram.com/access_token');
+    let longToken;
+    try {
+      const longRes = await axios.get('https://graph.instagram.com/access_token', {
+        params: { grant_type: 'ig_exchange_token', client_id: appId, client_secret: appSecret, access_token: shortToken },
+        maxRedirects: 0,
+      });
+      longToken = longRes.data.access_token;
+      logger.info('OAuth step 2 OK, got long token');
+    } catch (e) {
+      const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
+      logger.error(`OAuth step 2 FAILED status=${e.response?.status}: ${JSON.stringify(e.response?.data)}`);
+      throw new Error(`[Step2-longtoken] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
+    }
+
+    // Step 3 — get user ID and username
+    logger.info('OAuth step 3: GET graph.instagram.com/v22.0/me');
+    let igUserId, igName;
+    try {
+      const meRes = await axios.get('https://graph.instagram.com/v22.0/me', {
+        params: { fields: 'id,username,name', access_token: longToken },
+        maxRedirects: 0,
+      });
+      igUserId = String(meRes.data.id);
+      igName   = meRes.data.username || meRes.data.name || 'Instagram Account';
+      logger.info(`OAuth step 3 OK: user=${igName} id=${igUserId}`);
+    } catch (e) {
+      const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
+      logger.error(`OAuth step 3 FAILED status=${e.response?.status}: ${JSON.stringify(e.response?.data)}`);
+      throw new Error(`[Step3-me] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
+    }
 
     // Save or update account
     const existing = await getDB().get('SELECT id FROM accounts WHERE ig_user_id=$1', [igUserId]);
@@ -110,14 +133,8 @@ router.get('/callback', async (req, res) => {
     logger.info(`Instagram account connected: @${igName}`);
     res.redirect(`${frontendUrl}?auth_success=${encodeURIComponent(igName)}`);
   } catch (err) {
-    logger.error('OAuth callback error:', err.message);
-    logger.error('OAuth error response data:', JSON.stringify(err.response?.data));
-    const rawMsg = err.response?.data?.error_message
-      || err.response?.data?.error?.message
-      || err.response?.data?.message
-      || err.message;
-    const detail = err.response?.data ? ` [API: ${JSON.stringify(err.response.data)}]` : '';
-    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(rawMsg + detail)}`);
+    logger.error('OAuth error:', err.message);
+    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(err.message)}`);
   }
 });
 

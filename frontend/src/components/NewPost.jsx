@@ -103,7 +103,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     const base = {
       position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
       transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
-      fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'nowrap',
+      fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'pre',
       pointerEvents: 'all', borderRadius: 4, padding: '3px 10px',
       outline: selected === box.id ? '2px dashed rgba(255,255,255,0.7)' : 'none',
     };
@@ -265,7 +265,7 @@ export default function NewPost() {
   }
 
   async function handleEnhance() {
-    const hasText  = textBoxes.some(b => b.text.trim());
+    const hasText  = textBoxes.some(b => b.text);
     const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
     const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
     const hasSpeed = speed !== 1;
@@ -280,7 +280,7 @@ export default function NewPost() {
         subtitleStyle,
         segments,
         enhance,
-        textOverlays:  textBoxes.filter(b => b.text.trim()),
+        textOverlays:  textBoxes.filter(b => b.text),
         trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
         adjustments:   { brightness, contrast, saturation },
         speed,
