@@ -21,8 +21,15 @@ function cfg() {
 router.get('/instagram', (req, res) => {
   const { appId, callbackUrl } = cfg();
   const scope = 'instagram_business_basic,instagram_business_content_publish';
-  const url = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${appId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=${scope}`;
-  res.redirect(url);
+  const params = new URLSearchParams({
+    enable_fb_login:      '0',
+    force_authentication: '1',
+    client_id:            appId,
+    redirect_uri:         callbackUrl,
+    response_type:        'code',
+    scope
+  });
+  res.redirect(`https://www.instagram.com/oauth/authorize?${params}`);
 });
 
 // Step 2 — Instagram redirects here with ?code=
@@ -31,7 +38,8 @@ router.get('/callback', async (req, res) => {
   const { appId, appSecret, callbackUrl, frontendUrl } = cfg();
 
   if (igError || !code) {
-    return res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(igError || 'No code returned')}`);
+    const desc = req.query.error_description || req.query.error_reason || igError || 'No code returned';
+    return res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(desc)}`);
   }
 
   try {
