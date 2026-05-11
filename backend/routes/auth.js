@@ -21,7 +21,13 @@ function cfg() {
 router.get('/instagram', (req, res) => {
   const { appId, callbackUrl } = cfg();
   const scope = 'instagram_business_basic,instagram_business_content_publish';
-  const url = `https://www.instagram.com/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=${scope}`;
+  const state = Math.random().toString(36).slice(2);
+  const url = `https://www.instagram.com/oauth/authorize?` +
+    `client_id=${encodeURIComponent(appId)}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&response_type=code` +
+    `&scope=${encodeURIComponent(scope)}` +
+    `&state=${state}`;
   res.redirect(url);
 });
 
@@ -80,7 +86,10 @@ router.get('/callback', async (req, res) => {
     logger.error('OAuth callback failed at step:', err.message);
     logger.error('OAuth error response:', JSON.stringify(err.response?.data));
     const msg = err.response?.data?.error_message || err.response?.data?.error?.message || err.message;
-    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(msg)}`);
+    const friendlyMsg = (msg.toLowerCase().includes('method type') || msg.toLowerCase().includes('unsupported request'))
+      ? 'Instagram rejected the login. Your Meta app is likely in Development mode — go to Meta App Dashboard → App Roles → Test Users and add the second Instagram account as a Test User. Or switch the app to Live mode.'
+      : msg;
+    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(friendlyMsg)}`);
   }
 });
 

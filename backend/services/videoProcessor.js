@@ -89,29 +89,39 @@ function buildDrawtext(overlay) {
   if (!overlay.text || !overlay.text.trim()) return null;
   const size = SIZES[overlay.size] || 30;
   const escaped = overlay.text.trim()
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "’")
-    .replace(/:/g, '\\:')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]');
-  const color = overlay.color || 'white';
+    .replace(/\\/g, ‘\\\\’)
+    .replace(/’/g, "’")
+    .replace(/:/g, ‘\\:’)
+    .replace(/\[/g, ‘\\[‘)
+    .replace(/\]/g, ‘\\]’);
 
   let xExpr, yExpr;
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
-    // Percentage coords from the visual drag editor
     const xp = (Number(overlay.xPct) / 100).toFixed(6);
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
     xExpr = `(w*${xp})-(text_w/2)`;
     yExpr = `(h*${yp})-(text_h/2)`;
   } else {
-    const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
+    const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS[‘bot-center’];
     xExpr = pos.x;
     yExpr = pos.y;
   }
 
-  let filter = `drawtext=fontfile='${FONT}':text='${escaped}':fontsize=${size}:fontcolor=${color}:borderw=2:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}`;
+  let fontcolor, boxPart;
+  if (overlay.bg === ‘black’) {
+    fontcolor = ‘white’;
+    boxPart = ‘:box=1:boxcolor=black@0.85:boxborderw=10’;
+  } else if (overlay.bg === ‘white’) {
+    fontcolor = ‘#111111’;
+    boxPart = ‘:box=1:boxcolor=white@0.92:boxborderw=10’;
+  } else {
+    fontcolor = overlay.color || ‘white’;
+    boxPart = ‘:borderw=2:bordercolor=black@0.8’;
+  }
+
+  let filter = `drawtext=fontfile=’${FONT}’:text=’${escaped}’:fontsize=${size}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
   if (overlay.startTime > 0 || overlay.endTime > 0) {
-    filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
+    filter += `:enable=’between(t,${overlay.startTime || 0},${overlay.endTime || 999})’`;
   }
   return filter;
 }
@@ -156,8 +166,11 @@ async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubt
     vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}`);
   }
 
-  // 4. Sharpen on quality boost
-  if (enhance) vFilters.push('unsharp=3:3:0.8:3:3:0.0');
+  // 4. Noise reduction + sharpen on quality boost
+  if (enhance) {
+    vFilters.push('hqdn3d=1.5:1.5:6:6'); // noise reduction first
+    vFilters.push('unsharp=5:5:1.5:5:5:0.0'); // then sharpen
+  }
 
   // 5. Burn-in subtitles
   let srtPath = null;
@@ -173,14 +186,14 @@ async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubt
     if (f) vFilters.push(f);
   }
 
-  const crf = enhance ? '20' : '26';
+  const crf = enhance ? '18' : '24';
   const args = [...inputArgs];
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
   args.push(
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1',
-    '-crf', crf, '-c:a', 'aac', '-b:a', '96k',
+    '-c:v', 'libx264', '-preset', 'fast', '-threads', '2',
+    '-crf', crf, '-c:a', 'aac', '-b:a', '128k',
     '-movflags', '+faststart', outputPath
   );
 

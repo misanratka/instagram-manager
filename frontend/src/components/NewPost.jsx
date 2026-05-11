@@ -36,24 +36,24 @@ const CROP_RATIOS = [
 ];
 
 function newBox() {
-  return { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', startTime: 0, endTime: 0 };
+  return { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', bg: 'none', startTime: 0, endTime: 0 };
 }
 
-// ── Interactive text-on-video editor ─────────────────────────────────────────
-function VideoTextEditor({ videoSrc, textBoxes, onChange }) {
+// ── Fullscreen modal text-on-video editor ─────────────────────────────────────
+function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   const containerRef = useRef();
-  const [selected, setSelected]   = useState(null);
-  const [dragging, setDragging]   = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [dragging, setDragging] = useState(null);
 
   function addBox() {
-    const box = newBox();
+    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', bg: 'none', startTime: 0, endTime: 0 };
     onChange(prev => [...prev, box]);
     setSelected(box.id);
   }
 
   function removeBox(id) {
     onChange(prev => prev.filter(b => b.id !== id));
-    setSelected(s => (s === id ? null : s));
+    setSelected(null);
   }
 
   function updateBox(id, key, val) {
@@ -69,153 +69,126 @@ function VideoTextEditor({ videoSrc, textBoxes, onChange }) {
 
   useEffect(() => {
     if (!dragging) return;
-
     function clientPos(e) {
-      return e.touches ? { cx: e.touches[0].clientX, cy: e.touches[0].clientY }
-                       : { cx: e.clientX, cy: e.clientY };
+      return e.touches ? { cx: e.touches[0].clientX, cy: e.touches[0].clientY } : { cx: e.clientX, cy: e.clientY };
     }
-
     function onMove(e) {
+      e.preventDefault();
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const { cx, cy } = clientPos(e);
       onChange(prev => prev.map(b => b.id === dragging.id ? {
         ...b,
-        xPct: Math.max(2, Math.min(98, ((cx - rect.left) / rect.width)  * 100)),
-        yPct: Math.max(2, Math.min(98, ((cy - rect.top)  / rect.height) * 100)),
+        xPct: Math.max(2, Math.min(98, ((cx - rect.left) / rect.width) * 100)),
+        yPct: Math.max(2, Math.min(98, ((cy - rect.top) / rect.height) * 100)),
       } : b));
     }
-
     function onUp() { setDragging(null); }
-
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
+    window.addEventListener('mouseup', onUp);
     window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend',  onUp);
+    window.addEventListener('touchend', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
+      window.removeEventListener('mouseup', onUp);
       window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend',  onUp);
+      window.removeEventListener('touchend', onUp);
     };
   }, [dragging]);
 
   const sel = textBoxes.find(b => b.id === selected);
 
-  return (
-    <div>
-      {/* ── Video canvas ── */}
-      <div
-        ref={containerRef}
-        style={{ position: 'relative', width: '100%', background: '#000', borderRadius: 8, overflow: 'hidden', userSelect: 'none' }}
-        onClick={() => setSelected(null)}
-      >
-        <video src={videoSrc} controls style={{ width: '100%', display: 'block', maxHeight: 420 }} />
+  function getBoxStyle(box) {
+    const sizePx = SIZES.find(s => s.value === box.size)?.px ?? 18;
+    const base = {
+      position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
+      transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
+      fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'nowrap',
+      pointerEvents: 'all', borderRadius: 4, padding: '3px 10px',
+      outline: selected === box.id ? '2px dashed rgba(255,255,255,0.7)' : 'none',
+    };
+    if (box.bg === 'black') return { ...base, background: 'rgba(0,0,0,0.85)', color: '#fff', textShadow: 'none' };
+    if (box.bg === 'white') return { ...base, background: 'rgba(255,255,255,0.92)', color: '#111', textShadow: 'none' };
+    return { ...base, background: 'transparent', color: box.color === 'black' ? '#111' : (box.color || 'white'), textShadow: '1px 1px 4px rgba(0,0,0,1),-1px -1px 4px rgba(0,0,0,1)' };
+  }
 
-        {textBoxes.map(box => {
-          const sizePx = SIZES.find(s => s.value === box.size)?.px ?? 18;
-          const isSelected = selected === box.id;
-          return (
-            <div
-              key={box.id}
-              onMouseDown={e => handlePointerDown(e, box.id)}
-              onTouchStart={e => handlePointerDown(e, box.id)}
-              style={{
-                position:   'absolute',
-                left:       `${box.xPct}%`,
-                top:        `${box.yPct}%`,
-                transform:  'translate(-50%, -50%)',
-                color:      box.color === 'black' ? '#111' : box.color,
-                fontSize:   sizePx,
-                fontWeight: 'bold',
-                fontFamily: 'sans-serif',
-                textShadow: '1px 1px 4px rgba(0,0,0,1), -1px -1px 4px rgba(0,0,0,1)',
-                cursor:     'move',
-                pointerEvents: 'all',
-                padding:    '3px 6px',
-                borderRadius: 3,
-                whiteSpace: 'nowrap',
-                outline:    isSelected ? '1.5px dashed rgba(255,255,255,0.7)' : 'none',
-                background: isSelected ? 'rgba(255,255,255,0.08)' : 'transparent',
-              }}
-            >
-              {box.text || <span style={{ opacity: 0.5 }}>tap to edit</span>}
-            </div>
-          );
-        })}
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#111', borderBottom: '1px solid #222', flexShrink: 0 }}>
+        <button onClick={onClose} style={{ background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>✓ Done</button>
+        <span style={{ color: '#888', fontSize: 13 }}>Drag text to position</span>
+        <button onClick={addBox} style={{ background: '#1a1a2e', border: '1px solid #444', borderRadius: 8, color: '#ccc', padding: '8px 16px', cursor: 'pointer', fontSize: 14 }}>+ Add Text</button>
       </div>
 
-      <button onClick={addBox} style={tw.addTextBtn}>+ Add Text to Video</button>
+      {/* Video canvas */}
+      <div
+        ref={containerRef}
+        onClick={() => setSelected(null)}
+        style={{ flex: 1, position: 'relative', overflow: 'hidden', touchAction: 'none', userSelect: 'none', background: '#000' }}
+      >
+        {videoSrc
+          ? <video src={videoSrc} controls style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#444', fontSize: 14 }}>No video preview</div>
+        }
+        {textBoxes.map(box => (
+          <div
+            key={box.id}
+            style={getBoxStyle(box)}
+            onMouseDown={e => handlePointerDown(e, box.id)}
+            onTouchStart={e => handlePointerDown(e, box.id)}
+          >
+            {box.text || <span style={{ opacity: 0.5 }}>tap to edit</span>}
+          </div>
+        ))}
+      </div>
 
-      {/* ── Editor panel for selected box ── */}
+      {/* Edit panel — only when a box is selected */}
       {sel && (
-        <div style={tw.editPanel} onClick={e => e.stopPropagation()}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={tw.panelLabel}>Edit Text</span>
-            <button onClick={() => removeBox(sel.id)} style={tw.removeBtn}>Delete ✕</button>
+        <div style={{ background: '#0d0d14', borderTop: '1px solid #2a2a4a', padding: '12px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+            <input
+              autoFocus
+              value={sel.text}
+              onChange={e => updateBox(sel.id, 'text', e.target.value)}
+              placeholder="Type your text…"
+              style={{ flex: 1, padding: '9px 11px', background: '#111', border: '1px solid #333', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none' }}
+            />
+            <button onClick={() => removeBox(sel.id)} style={{ background: 'transparent', border: '1px solid #4a1a1a', borderRadius: 6, color: '#ff7070', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>✕</button>
           </div>
 
-          <input
-            autoFocus
-            value={sel.text}
-            onChange={e => updateBox(sel.id, 'text', e.target.value)}
-            placeholder="Type your text here…"
-            style={tw.input}
-          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Background */}
+            <span style={{ fontSize: 11, color: '#555', marginRight: 2 }}>BG:</span>
+            {[{ v: 'none', label: 'None' }, { v: 'black', label: '■ Black' }, { v: 'white', label: '□ White' }].map(bg => (
+              <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)} style={{ padding: '5px 12px', borderRadius: 6, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1px solid #333', background: sel.bg === bg.v ? '#1a1a3a' : '#111', color: '#ccc', cursor: 'pointer', fontSize: 12, fontWeight: sel.bg === bg.v ? 700 : 400 }}>{bg.label}</button>
+            ))}
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-            <select value={sel.size} onChange={e => updateBox(sel.id, 'size', e.target.value)} style={tw.miniSelect}>
+            {/* Size */}
+            <select value={sel.size} onChange={e => updateBox(sel.id, 'size', e.target.value)} style={{ padding: '6px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none', cursor: 'pointer', marginLeft: 4 }}>
               {SIZES.map(sz => <option key={sz.value} value={sz.value}>{sz.label}</option>)}
             </select>
 
-            <div style={{ display: 'flex', gap: 5 }}>
-              {COLORS.map(c => (
-                <button
-                  key={c.value}
-                  title={c.label}
-                  onClick={() => updateBox(sel.id, 'color', c.value)}
-                  style={{
-                    width: 22, height: 22, borderRadius: '50%',
-                    background: c.hex, border: sel.color === c.value ? '2.5px solid #fff' : '1px solid #444',
-                    cursor: 'pointer', flexShrink: 0
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 }}>
-            <span style={tw.smallLabel}>Show from</span>
-            <input type="number" min="0" placeholder="0" value={sel.startTime || ''} onChange={e => updateBox(sel.id, 'startTime', Number(e.target.value))} style={tw.timeInput} />
-            <span style={tw.smallLabel}>s to</span>
-            <input type="number" min="0" placeholder="end" value={sel.endTime || ''} onChange={e => updateBox(sel.id, 'endTime', Number(e.target.value))} style={tw.timeInput} />
-            <span style={tw.smallLabel}>s (0 = whole video)</span>
-          </div>
-
-          <div style={{ ...tw.hint, marginTop: 8 }}>
-            Drag the text on the video above to position it anywhere
+            {/* Color swatches (only shown when bg is none) */}
+            {sel.bg === 'none' && (
+              <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
+                {COLORS.map(c => (
+                  <button key={c.value} title={c.label} onClick={() => updateBox(sel.id, 'color', c.value)} style={{ width: 22, height: 22, borderRadius: '50%', background: c.hex, border: sel.color === c.value ? '2.5px solid #fff' : '1px solid #444', cursor: 'pointer', flexShrink: 0 }} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {textBoxes.length > 0 && !sel && (
-        <div style={tw.hint}>Tap any text on the video to edit or move it</div>
+      {!sel && textBoxes.length === 0 && (
+        <div style={{ padding: '12px 16px', textAlign: 'center', color: '#444', fontSize: 13, flexShrink: 0 }}>
+          Tap "+ Add Text" to add text on the video
+        </div>
       )}
     </div>
   );
 }
-
-const tw = {
-  addTextBtn: { marginTop: 8, padding: '8px 16px', background: '#111', border: '1px dashed #444', borderRadius: 8, color: '#aaa', cursor: 'pointer', fontSize: 13, display: 'block', width: '100%', textAlign: 'center' },
-  editPanel:  { background: '#0d0d14', border: '1px solid #2a2a4a', borderRadius: 8, padding: 14, marginTop: 8 },
-  panelLabel: { fontSize: 11, fontWeight: 700, color: '#7b6fff', textTransform: 'uppercase', letterSpacing: '0.8px' },
-  removeBtn:  { background: 'transparent', border: '1px solid #3a1a1a', borderRadius: 6, color: '#ff7070', cursor: 'pointer', fontSize: 12, padding: '3px 10px' },
-  input:      { width: '100%', padding: '9px 11px', background: '#111', border: '1px solid #252525', borderRadius: 7, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' },
-  miniSelect: { padding: '6px 8px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none', cursor: 'pointer' },
-  timeInput:  { width: 52, padding: '5px 7px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none' },
-  smallLabel: { fontSize: 11, color: '#555' },
-  hint:       { fontSize: 11, color: '#444', marginTop: 5 },
-};
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function NewPost() {
@@ -229,6 +202,7 @@ export default function NewPost() {
   const [onScreenText, setOnScreenText] = useState('');
   const [textBoxes, setTextBoxes]       = useState([]);
   const [enhancedUrl, setEnhancedUrl]   = useState(null);
+  const [showTextEditor, setShowTextEditor] = useState(false);
   const [burnSubs, setBurnSubs]         = useState(false);
   const [enhance, setEnhance]           = useState(false);
   const [enhancing, setEnhancing]       = useState(false);
@@ -428,15 +402,38 @@ export default function NewPost() {
           </Section>
         )}
 
-        {/* VIDEO + INTERACTIVE TEXT EDITOR (only when video is available) */}
+        {/* VIDEO + TEXT EDITOR (only when video is available) */}
         {!isIgCaption && (
           <>
-            <Section label="Video & Text Editor">
-              <VideoTextEditor
-                videoSrc={previewUrl}
-                textBoxes={textBoxes}
-                onChange={setTextBoxes}
-              />
+            <Section label="Video">
+              <div style={{ position: 'relative', background: '#000', borderRadius: 8, overflow: 'hidden' }}>
+                {previewUrl
+                  ? <video src={previewUrl} controls style={{ width: '100%', display: 'block', maxHeight: 380 }} />
+                  : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: 13 }}>No video preview</div>
+                }
+                {/* read-only text overlay preview */}
+                {textBoxes.map(box => {
+                  const sizePx = SIZES.find(sz => sz.value === box.size)?.px ?? 18;
+                  const isBlack = box.bg === 'black';
+                  const isWhite = box.bg === 'white';
+                  return (
+                    <div key={box.id} style={{
+                      position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
+                      transform: 'translate(-50%,-50%)', fontSize: sizePx * 0.7, fontWeight: 'bold',
+                      fontFamily: 'sans-serif', pointerEvents: 'none', borderRadius: 4, padding: '2px 6px',
+                      background: isBlack ? 'rgba(0,0,0,0.85)' : isWhite ? 'rgba(255,255,255,0.92)' : 'transparent',
+                      color: isBlack ? '#fff' : isWhite ? '#111' : (box.color || 'white'),
+                      textShadow: (!isBlack && !isWhite) ? '1px 1px 3px rgba(0,0,0,1)' : 'none',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {box.text}
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={() => setShowTextEditor(true)} style={{ marginTop: 8, padding: '9px 18px', background: '#111', border: '1px solid #3a3a6a', borderRadius: 8, color: '#7b6fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, display: 'block', width: '100%', textAlign: 'center' }}>
+                ✏ Edit Text on Video {textBoxes.length > 0 ? `(${textBoxes.length} text${textBoxes.length > 1 ? 's' : ''})` : ''}
+              </button>
               {enhancedUrl && <div style={s.badge}>✓ Rendered</div>}
             </Section>
 
@@ -538,6 +535,15 @@ export default function NewPost() {
               {posting ? 'Scheduling…' : 'Confirm Schedule'}
             </button>
           </div>
+        )}
+
+        {showTextEditor && (
+          <TextEditorModal
+            videoSrc={previewUrl}
+            textBoxes={textBoxes}
+            onChange={setTextBoxes}
+            onClose={() => setShowTextEditor(false)}
+          />
         )}
       </div>
     );
