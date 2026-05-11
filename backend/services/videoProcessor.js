@@ -50,7 +50,7 @@ function buildDrawtext(overlay) {
   const size = SIZES[overlay.size] || 30;
   const escaped = overlay.text.trim()
     .replace(/\\/g, '\\\\')
-    .replace(/'/g, "’")
+    .replace(/'/g, "'")
     .replace(/:/g, '\\:')
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]');
@@ -62,35 +62,72 @@ function buildDrawtext(overlay) {
   return filter;
 }
 
-async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubtitles, enhance }) {
+async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubtitles, enhance, trim, adjustments, speed }) {
   const uploadDir = getUploadDir();
   const outFilename = `enhanced_${uuidv4()}.mp4`;
   const outputPath = path.join(uploadDir, outFilename);
 
-  const filters = [];
-
-  if (enhance) {
-    filters.push('eq=brightness=0.06:contrast=1.08:saturation=1.1');
+  // Build input args with optional trim (input-seeking for speed)
+  const inputArgs = ['-y'];
+  const trimStart = Number(trim?.start) || 0;
+  const trimEnd   = Number(trim?.end)   || 0;
+  if (trimStart > 0) inputArgs.push('-ss', trimStart.toFixed(3));
+  inputArgs.push('-i', inputPath);
+  if (trimEnd > trimStart && trimEnd > 0) {
+    inputArgs.push('-t', (trimEnd - trimStart).toFixed(3));
   }
 
+  const vFilters = [];
+  const aFilters = [];
+
+  // Speed change
+  const spd = Number(speed) || 1;
+  if (spd !== 1) {
+    vFilters.push(`setpts=${(1 / spd).toFixed(6)}*PTS`);
+    aFilters.push(`atempo=${spd}`);
+  }
+
+  // Color adjustments (merge user sliders + quality-boost bump)
+  const br  = Number(adjustments?.brightness) || 0;
+  const ct  = Number(adjustments?.contrast)   || 1;
+  const sat = Number(adjustments?.saturation) || 1;
+  const finalBr  = enhance ? Math.min(0.5,  br  + 0.05)        : br;
+  const finalCt  = enhance ? Math.min(2.0,  ct  * 1.05)        : ct;
+  const finalSat = enhance ? Math.min(3.0,  sat * 1.1)         : sat;
+
+  if (Math.abs(finalBr) > 0.001 || Math.abs(finalCt - 1) > 0.001 || Math.abs(finalSat - 1) > 0.001) {
+    vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}`);
+  }
+
+  // Sharpening when quality boost is enabled
+  if (enhance) {
+    vFilters.push('unsharp=3:3:0.8:3:3:0.0');
+  }
+
+  // Burn-in subtitles
   let srtPath = null;
   if (burnSubtitles && srtContent) {
     srtPath = writeSRTFile(srtContent, inputPath);
     const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-    filters.push(`subtitles='${escapedSrt}':force_style='FontSize=18,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2'`);
+    vFilters.push(`subtitles='${escapedSrt}':force_style='FontSize=18,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2'`);
   }
 
+  // Text overlays
   for (const overlay of textOverlays) {
     const f = buildDrawtext(overlay);
-    if (f) filters.push(f);
+    if (f) vFilters.push(f);
   }
 
-  const args = ['-y', '-i', inputPath];
-  if (filters.length > 0) args.push('-vf', filters.join(','));
+  // Lower CRF = higher quality output when boost is on
+  const crf = enhance ? '20' : '26';
+
+  const args = [...inputArgs];
+  if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
+  if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
   args.push(
     '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1',
-    '-crf', '26', '-c:a', 'aac', '-b:a', '96k',
+    '-crf', crf, '-c:a', 'aac', '-b:a', '96k',
     '-movflags', '+faststart', outputPath
   );
 

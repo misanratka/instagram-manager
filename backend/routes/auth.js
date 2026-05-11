@@ -8,45 +8,49 @@ const router = express.Router();
 
 function cfg() {
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const backendUrl  = (process.env.BACKEND_URL  || 'http://localhost:3001').replace(/\/$/, '');
   return {
     appId:       process.env.IG_APP_ID,
     appSecret:   process.env.IG_APP_SECRET,
-    redirectUri: frontendUrl,   // Instagram redirects back to the frontend root
+    callbackUrl: `${backendUrl}/auth/callback`,
     frontendUrl
   };
 }
 
-// Step 1 — send user to Instagram login
+// Step 1 — redirect user to Instagram login
 router.get('/instagram', (req, res) => {
-  const { appId, redirectUri } = cfg();
+  const { appId, callbackUrl } = cfg();
   const scope = 'instagram_business_basic,instagram_business_content_publish';
-  const url = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
+  const url = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${appId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=${scope}`;
   res.redirect(url);
 });
 
-// Step 2 — frontend sends the ?code= here to exchange for a token
-router.post('/exchange', async (req, res, next) => {
-  const { appId, appSecret, redirectUri, frontendUrl } = cfg();
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'code is required' });
+// Step 2 — Instagram redirects here with ?code=
+router.get('/callback', async (req, res) => {
+  const { code, error: igError } = req.query;
+  const { appId, appSecret, callbackUrl, frontendUrl } = cfg();
+
+  if (igError || !code) {
+    return res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(igError || 'No code returned')}`);
+  }
 
   try {
     // Exchange code → short-lived token
     const tokenRes = await axios.post(
       'https://api.instagram.com/oauth/access_token',
-      new URLSearchParams({ client_id: appId, client_secret: appSecret, grant_type: 'authorization_code', redirect_uri: redirectUri, code }).toString(),
+      new URLSearchParams({ client_id: appId, client_secret: appSecret, grant_type: 'authorization_code', redirect_uri: callbackUrl, code }).toString(),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
     const shortToken = tokenRes.data.access_token;
     const igUserId   = String(tokenRes.data.user_id);
 
-    // Exchange → long-lived token (60 days, renewable)
+    // Exchange → long-lived token (60 days)
     const longRes = await axios.get('https://graph.instagram.com/access_token', {
       params: { grant_type: 'ig_exchange_token', client_id: appId, client_secret: appSecret, access_token: shortToken }
     });
     const longToken = longRes.data.access_token;
 
-    // Get display name
+    // Get username
     let igName = 'Instagram Account';
     try {
       const info = await axios.get(`https://graph.instagram.com/v19.0/${igUserId}`, {
@@ -55,7 +59,7 @@ router.post('/exchange', async (req, res, next) => {
       igName = info.data.username || info.data.name || igName;
     } catch {}
 
-    // Save or update
+    // Save or update account
     const existing = await getDB().get('SELECT id FROM accounts WHERE ig_user_id=$1', [igUserId]);
     if (existing) {
       await getDB().run('UPDATE accounts SET access_token=$1 WHERE ig_user_id=$2', [longToken, igUserId]);
@@ -67,11 +71,11 @@ router.post('/exchange', async (req, res, next) => {
     }
 
     logger.info(`Instagram account connected: @${igName}`);
-    res.json({ success: true, username: igName });
+    res.redirect(`${frontendUrl}?auth_success=${encodeURIComponent(igName)}`);
   } catch (err) {
-    logger.error('Token exchange failed:', err.message);
+    logger.error('OAuth callback failed:', err.message);
     const msg = err.response?.data?.error_message || err.response?.data?.error?.message || err.message;
-    res.status(400).json({ error: msg });
+    res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(msg)}`);
   }
 });
 

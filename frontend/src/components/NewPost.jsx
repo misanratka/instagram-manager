@@ -29,6 +29,14 @@ const SIZES = [
   { label: 'XL',     value: 'xl' },
 ];
 
+const SPEEDS = [
+  { label: '0.5×',        value: 0.5 },
+  { label: '0.75×',       value: 0.75 },
+  { label: '1× (normal)', value: 1 },
+  { label: '1.5×',        value: 1.5 },
+  { label: '2×',          value: 2 },
+];
+
 function newOverlay() {
   return { id: Date.now(), text: '', position: 'bot-center', color: 'white', size: 'medium', startTime: 0, endTime: 0 };
 }
@@ -47,6 +55,14 @@ export default function NewPost() {
   const [burnSubs, setBurnSubs]         = useState(false);
   const [enhance, setEnhance]           = useState(false);
   const [enhancing, setEnhancing]       = useState(false);
+  // Editing
+  const [trimStart, setTrimStart]       = useState('');
+  const [trimEnd, setTrimEnd]           = useState('');
+  const [brightness, setBrightness]     = useState(0);
+  const [contrast, setContrast]         = useState(1);
+  const [saturation, setSaturation]     = useState(1);
+  const [speed, setSpeed]               = useState(1);
+  // Posting
   const [scheduling, setScheduling]     = useState(false);
   const [scheduleTime, setScheduleTime] = useState('');
   const [posting, setPosting]           = useState(false);
@@ -60,6 +76,8 @@ export default function NewPost() {
     setStep(STEPS.INPUT); setResult(null); setCaption('');
     setOnScreenText(''); setTextOverlays([]); setEnhancedUrl(null);
     setBurnSubs(false); setEnhance(false);
+    setTrimStart(''); setTrimEnd('');
+    setBrightness(0); setContrast(1); setSaturation(1); setSpeed(1);
     setScheduling(false); setScheduleTime('');
     setError(''); setSuccess(''); setUrl(''); setFile(null);
   }
@@ -83,14 +101,21 @@ export default function NewPost() {
 
   async function handleEnhance() {
     const hasOverlays = textOverlays.some(o => o.text.trim());
-    if (!burnSubs && !enhance && !hasOverlays) return setError('Select at least one enhancement or add text');
+    const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
+    const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
+    const hasSpeed = speed !== 1;
+    if (!burnSubs && !enhance && !hasOverlays && !hasTrim && !hasAdj && !hasSpeed)
+      return setError('Select at least one edit or enhancement option');
     setError(''); setEnhancing(true);
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
       const res = await api.enhanceVideo(result.postId, {
         burnSubtitles: burnSubs,
         enhance,
-        textOverlays: textOverlays.filter(o => o.text.trim())
+        textOverlays: textOverlays.filter(o => o.text.trim()),
+        trim: { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
+        adjustments: { brightness, contrast, saturation },
+        speed
       });
       setEnhancedUrl(res.enhancedVideoUrl);
     } catch (err) {
@@ -144,7 +169,7 @@ export default function NewPost() {
     setTextOverlays(prev => prev.map(o => o.id === id ? { ...o, [key]: val } : o));
   }
 
-  const minTime = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
+  const minTime   = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
   const previewUrl = enhancedUrl || result?.videoUrl;
 
   if (step === STEPS.PROCESSING) {
@@ -171,7 +196,7 @@ export default function NewPost() {
         {/* VIDEO PREVIEW */}
         <div style={s.videoWrap}>
           <video src={previewUrl} controls style={s.video} />
-          {enhancedUrl && <div style={s.badge}>✓ Enhanced</div>}
+          {enhancedUrl && <div style={s.badge}>✓ Rendered</div>}
         </div>
 
         {/* ON-SCREEN TEXT */}
@@ -186,8 +211,43 @@ export default function NewPost() {
           </div>
         )}
 
+        {/* VIDEO EDITING */}
+        <Section label="Edit Video">
+          <div style={s.editGrid}>
+            <div>
+              <div style={s.editLabel}>Trim (seconds)</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="number" min="0" placeholder="Start s"
+                  value={trimStart}
+                  onChange={e => setTrimStart(e.target.value)}
+                  style={{ ...s.timeInput, flex: 1 }}
+                />
+                <span style={{ color: '#444', fontSize: 13 }}>→</span>
+                <input
+                  type="number" min="0" placeholder="End s"
+                  value={trimEnd}
+                  onChange={e => setTrimEnd(e.target.value)}
+                  style={{ ...s.timeInput, flex: 1 }}
+                />
+              </div>
+              <div style={s.hint}>Leave blank to keep full video</div>
+            </div>
+            <div>
+              <div style={s.editLabel}>Playback Speed</div>
+              <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={s.miniSelect}>
+                {SPEEDS.map(sp => <option key={sp.value} value={sp.value}>{sp.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5} step={0.05} defaultVal={0} onChange={setBrightness} />
+          <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0} step={0.05} defaultVal={1} onChange={setContrast} />
+          <SliderRow label="Saturation" value={saturation} min={0}    max={2.0} step={0.05} defaultVal={1} onChange={setSaturation} />
+        </Section>
+
         {/* TEXT OVERLAYS */}
-        <Section label="Text Overlays">
+        <Section label="Text Overlays (burned into video)">
           {textOverlays.map(o => (
             <div key={o.id} style={s.overlayCard}>
               <div style={s.overlayRow}>
@@ -228,23 +288,23 @@ export default function NewPost() {
               </div>
             </div>
           ))}
-          <button onClick={addOverlay} style={s.addOverlayBtn}>+ Add Text</button>
-          <div style={s.hint}>Leave start/end empty to show text for the full video</div>
+          <button onClick={addOverlay} style={s.addOverlayBtn}>+ Add Text Overlay</button>
         </Section>
 
         {/* ENHANCEMENTS */}
-        <Section label="Enhancements">
+        <Section label="Quality Enhancements">
           <div style={s.toggleRow}>
             <Toggle on={burnSubs} onChange={setBurnSubs} label="Burn Subtitles" desc="Embed transcript captions into video" disabled={!result.srtContent} />
-            <Toggle on={enhance}  onChange={setEnhance}  label="Boost Quality"  desc="Slightly improve brightness, contrast and color" />
+            <Toggle on={enhance}  onChange={setEnhance}  label="Boost Quality"  desc="Sharpen + improve brightness, contrast & color" />
           </div>
           <button
             onClick={handleEnhance}
             disabled={enhancing}
             style={{ ...s.btn, ...s.btnSecondary, marginTop: 12, opacity: enhancing ? 0.5 : 1 }}
           >
-            {enhancing ? <><span style={s.miniSpinner} /> Processing…</> : 'Apply & Render Video'}
+            {enhancing ? <><span style={s.miniSpinner} /> Rendering…</> : 'Apply Edits & Render Video'}
           </button>
+          <div style={s.hint}>Renders a new video with all your edits applied. You can render multiple times.</div>
         </Section>
 
         {/* CAPTION */}
@@ -260,20 +320,22 @@ export default function NewPost() {
         </Section>
 
         {/* ACCOUNT + POST */}
-        <Section label="Post to Account">
+        <Section label="Post to Instagram Account">
           <select value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
             <option value="">Select account…</option>
             {accounts.map(a => <option key={a.id} value={a.id}>@{a.username} — {a.name}</option>)}
           </select>
-          {accounts.length === 0 && <div style={s.hint}>No accounts yet — go to the Accounts tab to add one.</div>}
+          {accounts.length === 0 && (
+            <div style={s.hint}>No accounts yet — go to the Accounts tab and click "Connect Instagram".</div>
+          )}
         </Section>
 
         <div style={s.actions}>
           <button onClick={handlePublish} disabled={posting || !accountId} style={{ ...s.btn, ...s.btnPrimary, opacity: posting || !accountId ? 0.4 : 1 }}>
-            {posting ? <><span style={s.miniSpinner} /> Posting…</> : 'Post Now'}
+            {posting ? <><span style={s.miniSpinner} /> Posting…</> : '🚀 Post Now'}
           </button>
           <button onClick={() => setScheduling(v => !v)} style={{ ...s.btn, ...s.btnSecondary }}>
-            {scheduling ? 'Cancel' : 'Schedule'}
+            {scheduling ? 'Cancel' : '🕐 Schedule'}
           </button>
         </div>
 
@@ -355,6 +417,27 @@ function Section({ label, children }) {
   );
 }
 
+function SliderRow({ label, value, min, max, step, defaultVal, onChange }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: '#888' }}>{label}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: '#ccc', minWidth: 36, textAlign: 'right' }}>{Number(value).toFixed(2)}</span>
+          {value !== defaultVal && (
+            <button onClick={() => onChange(defaultVal)} style={{ fontSize: 10, color: '#555', background: 'none', border: '1px solid #333', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}>reset</button>
+          )}
+        </div>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ width: '100%', accentColor: '#833ab4', cursor: 'pointer' }}
+      />
+    </div>
+  );
+}
+
 function Toggle({ on, onChange, label, desc, disabled }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
@@ -376,12 +459,13 @@ function Toggle({ on, onChange, label, desc, disabled }) {
 const s = {
   h2:             { fontSize: 22, fontWeight: 700, marginBottom: 24, color: '#fff' },
   label:          { fontSize: 11, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 },
+  editLabel:      { fontSize: 11, fontWeight: 600, color: '#666', marginBottom: 6 },
   input:          { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' },
   select:         { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', cursor: 'pointer' },
   textarea:       { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none' },
   charCount:      { textAlign: 'right', fontSize: 11, color: '#333', marginTop: 4 },
   miniSelect:     { padding: '6px 8px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none', cursor: 'pointer' },
-  timeInput:      { width: 64, padding: '6px 8px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none' },
+  timeInput:      { width: 64, padding: '8px 10px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 13, outline: 'none' },
   dropZone:       { border: '2px dashed #252525', borderRadius: 10, padding: '36px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: 12 },
   dropIcon:       { fontSize: 28, marginBottom: 8, color: '#444' },
   fileRow:        { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
@@ -414,6 +498,7 @@ const s = {
   colorRow:       { display: 'flex', gap: 5, alignItems: 'center' },
   colorDot:       { width: 18, height: 18, borderRadius: '50%', border: '1px solid #333', cursor: 'pointer', flexShrink: 0 },
   timingRow:      { display: 'flex', gap: 4, alignItems: 'center' },
+  editGrid:       { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 },
   center:         { textAlign: 'center', padding: '60px 0' },
   processingTitle:{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8, marginTop: 16 },
   spinner:        { width: 44, height: 44, border: '3px solid #222', borderTopColor: '#833ab4', borderRadius: '50%', animation: 'spin .8s linear infinite', margin: '0 auto' },

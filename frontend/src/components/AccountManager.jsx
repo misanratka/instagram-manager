@@ -19,23 +19,14 @@ export default function AccountManager() {
   useEffect(() => {
     load();
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (code) {
-      window.history.replaceState({}, '', window.location.pathname);
-      setLoading(true);
-      fetch(`${BACKEND}/auth/exchange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code })
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) throw new Error(data.error);
-          setSuccess(`@${data.username} connected successfully!`);
-          load();
-        })
-        .catch(err => setError('Instagram connect failed: ' + err.message))
-        .finally(() => setLoading(false));
+    window.history.replaceState({}, '', window.location.pathname);
+    const authSuccess = params.get('auth_success');
+    if (authSuccess !== null) {
+      setSuccess(`@${authSuccess} connected successfully!`);
+      load();
+    }
+    if (params.get('auth_error')) {
+      setError('Instagram connect failed: ' + params.get('auth_error'));
     }
   }, []);
 
