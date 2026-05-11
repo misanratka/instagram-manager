@@ -30,6 +30,11 @@ export const api = {
     return request('POST', '/content/process-file', fd, true);
   },
   updateCaption: (postId, data) => request('PUT', `/content/caption/${postId}`, data),
+  attachVideo: (postId, file) => {
+    const fd = new FormData();
+    fd.append('video', file);
+    return request('POST', `/content/attach-video/${postId}`, fd, true);
+  },
   enhanceVideo:  (postId, opts) => request('POST', `/content/enhance/${postId}`, opts),
 
   // Posts

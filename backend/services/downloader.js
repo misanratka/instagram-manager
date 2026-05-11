@@ -349,21 +349,74 @@ async function downloadVideo(url) {
 }
 
 async function getInstagramMetadata(url) {
+  const axios = require('axios');
+
+  // 1. Try scraping og:description — contains the full post caption
+  try {
+    const res = await axios.get(url, {
+      headers: {
+        'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 12000,
+      maxRedirects: 3,
+    });
+    const html = typeof res.data === 'string' ? res.data : '';
+    if (html) {
+      const descMatch =
+        html.match(/<meta[^>]+property="og:description"[^>]+content="([^"]+)"/i) ||
+        html.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:description"/i);
+      const titleMatch =
+        html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i) ||
+        html.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:title"/i);
+      if (descMatch?.[1]) {
+        const description = descMatch[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+        const title = titleMatch?.[1]?.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&') || '';
+        logger.info('Got Instagram caption via og:description scrape');
+        return { title, description, duration: 0 };
+      }
+    }
+  } catch (e) {
+    logger.warn('Instagram caption scrape failed:', e.message);
+  }
+
+  // 2. Try yt-dlp --dump-json (no video download, just metadata)
+  try {
+    const metadata = await new Promise((resolve, reject) => {
+      execFile('yt-dlp', ['--dump-json', '--no-download', '--no-playlist', url], { timeout: 25000 }, (err, stdout) => {
+        if (err) return reject(err);
+        try { resolve(JSON.parse(stdout)); } catch { reject(new Error('parse failed')); }
+      });
+    });
+    logger.info('Got Instagram metadata via yt-dlp --dump-json');
+    return {
+      title: metadata.title || '',
+      description: metadata.description || metadata.title || '',
+      duration: metadata.duration || 0,
+      uploader: metadata.uploader || '',
+    };
+  } catch (e) {
+    logger.warn('yt-dlp metadata for Instagram failed:', e.message);
+  }
+
+  // 3. Fall back to oEmbed (title/author only)
   try {
     const appId     = process.env.IG_APP_ID;
     const appSecret = process.env.IG_APP_SECRET;
-    if (!appId || !appSecret) return { title: '', description: '', duration: 0 };
-    const axios = require('axios');
-    const res = await axios.get('https://graph.instagram.com/oembed', {
-      params: { url, access_token: `${appId}|${appSecret}`, fields: 'thumbnail_url,author_name' },
-      timeout: 10000
-    });
-    const title = res.data.title || res.data.author_name || '';
-    return { title, description: title, duration: 0, uploader: res.data.author_name || '' };
-  } catch (err) {
-    logger.warn('Instagram oEmbed failed:', err.response?.data?.error?.message || err.message);
-    return { title: '', description: '', duration: 0 };
+    if (appId && appSecret) {
+      const res = await axios.get('https://graph.instagram.com/oembed', {
+        params: { url, access_token: `${appId}|${appSecret}`, fields: 'thumbnail_url,author_name' },
+        timeout: 10000,
+      });
+      const title = res.data.title || res.data.author_name || '';
+      return { title, description: title, duration: 0, uploader: res.data.author_name || '' };
+    }
+  } catch (e) {
+    logger.warn('Instagram oEmbed failed:', e.message);
   }
+
+  return { title: '', description: '', duration: 0 };
 }
 
 function getVideoMetadata(url) {

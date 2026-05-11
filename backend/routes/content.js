@@ -29,7 +29,10 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}) {
     ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId])
     : null;
 
-  const { text: transcript, segments } = await transcribeVideo(videoPath);
+  // Skip transcription when there is no local video file
+  const { text: transcript, segments } = videoPath
+    ? await transcribeVideo(videoPath)
+    : { text: '', segments: [] };
   const srtContent = segmentsToSRT(segments);
 
   const { caption, onScreenText } = await generateContent({
@@ -49,23 +52,37 @@ router.post('/process-url', async (req, res, next) => {
     const { url, account_id } = req.body;
     if (!url || !url.trim()) return res.status(400).json({ error: 'url is required' });
 
+    const isInstagram = /instagram\.com/.test(url);
     const meta = await getVideoMetadata(url).catch(() => ({ title: '', description: '' }));
-    const videoFile = await downloadVideo(url);
+
+    let videoFile = null;
+    if (!isInstagram) {
+      videoFile = await downloadVideo(url);
+    }
+
+    const videoPath = videoFile ? videoFile.path : null;
 
     const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions } =
-      await processVideo(videoFile.path, url, account_id, meta);
-
-    const captionWithMeta = caption;
-    const hookWithMeta    = hookText;
+      await processVideo(videoPath, url, account_id, meta);
 
     const postId = uuidv4();
     await getDB().run(
       `INSERT INTO posts (id, account_id, video_url, local_video_path, original_caption, generated_caption, hook_text, subtitles_srt, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')`,
-      [postId, account_id || null, url, videoFile.path, meta.description || '', captionWithMeta, hookWithMeta, srtContent]
+      [postId, account_id || null, url, videoPath, meta.description || '', caption, hookText, srtContent]
     );
 
-    res.json({ postId, videoUrl: videoFile.url, metadata: meta, transcript: transcript.substring(0, 600), generatedCaption: captionWithMeta, hookText: hookWithMeta, srtContent, onScreenSuggestions });
+    res.json({
+      postId,
+      videoUrl: videoFile ? videoFile.url : null,
+      metadata: meta,
+      transcript: (transcript || '').substring(0, 600),
+      generatedCaption: caption,
+      hookText,
+      srtContent,
+      onScreenSuggestions,
+      instagramUrl: isInstagram ? url : null,
+    });
   } catch (err) { next(err); }
 });
 
@@ -110,6 +127,18 @@ router.post('/enhance/:postId', async (req, res, next) => {
     const result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', textOverlays, burnSubtitles, enhance, trim, adjustments, speed, cropRatio });
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
     res.json({ enhancedVideoUrl: result.url, message: 'Video enhanced successfully' });
+  } catch (err) { next(err); }
+});
+
+// Attach a video file to an existing post (used when URL was Instagram — no download)
+router.post('/attach-video/:postId', upload.single('video'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No video file' });
+    const post = await getDB().get('SELECT id FROM posts WHERE id=$1', [req.params.postId]);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    await getDB().run('UPDATE posts SET local_video_path=$1 WHERE id=$2', [req.file.path, req.params.postId]);
+    const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+    res.json({ videoUrl: `${base}/uploads/${req.file.filename}` });
   } catch (err) { next(err); }
 });
 

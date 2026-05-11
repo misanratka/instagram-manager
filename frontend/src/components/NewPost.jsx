@@ -351,8 +351,9 @@ export default function NewPost() {
     if (f && f.type.startsWith('video/')) { setFile(f); setUrl(''); }
   }
 
-  const minTime    = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
-  const previewUrl = enhancedUrl || result?.videoUrl;
+  const minTime      = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
+  const previewUrl   = enhancedUrl || result?.videoUrl;
+  const isIgCaption  = !!(result?.instagramUrl && !result?.videoUrl); // Instagram URL, no video downloaded
 
   // ── Confirmation popup ──
   if (popup) {
@@ -382,8 +383,8 @@ export default function NewPost() {
     return (
       <div style={s.center}>
         <div style={s.spinner} />
-        <div style={s.processingTitle}>Processing video…</div>
-        <div style={s.hint}>Downloading and generating caption. This may take a moment.</div>
+        <div style={s.processingTitle}>{url && /instagram\.com/.test(url) ? 'Rewriting caption…' : 'Processing video…'}</div>
+        <div style={s.hint}>{url && /instagram\.com/.test(url) ? 'Fetching the original caption and rewriting it with AI.' : 'Downloading and generating caption. This may take a moment.'}</div>
       </div>
     );
   }
@@ -411,75 +412,91 @@ export default function NewPost() {
           </div>
         )}
 
-        {/* VIDEO + INTERACTIVE TEXT EDITOR */}
-        <Section label="Video & Text Editor">
-          <VideoTextEditor
-            videoSrc={previewUrl}
-            textBoxes={textBoxes}
-            onChange={setTextBoxes}
-          />
-          {enhancedUrl && <div style={s.badge}>✓ Rendered</div>}
-        </Section>
-
-        {/* CROP */}
-        <Section label="Crop / Aspect Ratio">
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {CROP_RATIOS.map(r => (
-              <button
-                key={r.value}
-                onClick={() => setCropRatio(r.value)}
-                style={{
-                  ...s.cropBtn,
-                  background:   cropRatio === r.value ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#111',
-                  color:        cropRatio === r.value ? '#fff' : '#888',
-                  border:       cropRatio === r.value ? 'none' : '1px solid #2a2a2a',
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{r.label}</div>
-                {r.desc && <div style={{ fontSize: 10, opacity: 0.75 }}>{r.desc}</div>}
-              </button>
-            ))}
-          </div>
-        </Section>
-
-        {/* ADJUSTMENTS */}
-        <Section label="Adjustments">
-          <div style={s.editGrid}>
-            <div>
-              <div style={s.editLabel}>Trim (seconds)</div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input type="number" min="0" placeholder="Start" value={trimStart} onChange={e => setTrimStart(e.target.value)} style={{ ...s.timeInput, flex: 1 }} />
-                <span style={{ color: '#444' }}>→</span>
-                <input type="number" min="0" placeholder="End" value={trimEnd} onChange={e => setTrimEnd(e.target.value)} style={{ ...s.timeInput, flex: 1 }} />
+        {/* INSTAGRAM CAPTION MODE — no video downloaded */}
+        {isIgCaption && (
+          <Section label="Video">
+            <div style={s.igNotice}>
+              <div style={{ fontSize: 13, color: '#aaa', marginBottom: 10 }}>
+                Caption rewritten from the original Instagram post. Upload the video file below to post it.
               </div>
+              <IgVideoUpload postId={result.postId} onUploaded={url => setResult(r => ({ ...r, videoUrl: url, instagramUrl: null }))} />
             </div>
-            <div>
-              <div style={s.editLabel}>Playback Speed</div>
-              <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={s.miniSelect}>
-                {SPEEDS.map(sp => <option key={sp.value} value={sp.value}>{sp.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5}  step={0.05} def={0} onChange={setBrightness} />
-          <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0}  step={0.05} def={1} onChange={setContrast} />
-          <SliderRow label="Saturation" value={saturation} min={0}    max={2.0}  step={0.05} def={1} onChange={setSaturation} />
-        </Section>
+          </Section>
+        )}
 
-        {/* QUALITY */}
-        <Section label="Quality">
-          <div style={s.toggleRow}>
-            <Toggle on={burnSubs} onChange={setBurnSubs} label="Burn Subtitles" desc="Embed transcript captions into video" disabled={!result.srtContent} />
-            <Toggle on={enhance}  onChange={setEnhance}  label="Boost Quality"  desc="Sharpen + enhance brightness, contrast & color" />
-          </div>
-        </Section>
+        {/* VIDEO + INTERACTIVE TEXT EDITOR (only when video is available) */}
+        {!isIgCaption && (
+          <>
+            <Section label="Video & Text Editor">
+              <VideoTextEditor
+                videoSrc={previewUrl}
+                textBoxes={textBoxes}
+                onChange={setTextBoxes}
+              />
+              {enhancedUrl && <div style={s.badge}>✓ Rendered</div>}
+            </Section>
 
-        <button
-          onClick={handleEnhance}
-          disabled={enhancing}
-          style={{ ...s.btn, ...s.btnSecondary, marginBottom: 20, opacity: enhancing ? 0.5 : 1 }}
-        >
-          {enhancing ? <><span style={s.miniSpinner} /> Rendering…</> : 'Apply Edits & Render Video'}
-        </button>
+            {/* CROP */}
+            <Section label="Crop / Aspect Ratio">
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {CROP_RATIOS.map(r => (
+                  <button
+                    key={r.value}
+                    onClick={() => setCropRatio(r.value)}
+                    style={{
+                      ...s.cropBtn,
+                      background:   cropRatio === r.value ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#111',
+                      color:        cropRatio === r.value ? '#fff' : '#888',
+                      border:       cropRatio === r.value ? 'none' : '1px solid #2a2a2a',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{r.label}</div>
+                    {r.desc && <div style={{ fontSize: 10, opacity: 0.75 }}>{r.desc}</div>}
+                  </button>
+                ))}
+              </div>
+            </Section>
+
+            {/* ADJUSTMENTS */}
+            <Section label="Adjustments">
+              <div style={s.editGrid}>
+                <div>
+                  <div style={s.editLabel}>Trim (seconds)</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="number" min="0" placeholder="Start" value={trimStart} onChange={e => setTrimStart(e.target.value)} style={{ ...s.timeInput, flex: 1 }} />
+                    <span style={{ color: '#444' }}>→</span>
+                    <input type="number" min="0" placeholder="End" value={trimEnd} onChange={e => setTrimEnd(e.target.value)} style={{ ...s.timeInput, flex: 1 }} />
+                  </div>
+                </div>
+                <div>
+                  <div style={s.editLabel}>Playback Speed</div>
+                  <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={s.miniSelect}>
+                    {SPEEDS.map(sp => <option key={sp.value} value={sp.value}>{sp.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5}  step={0.05} def={0} onChange={setBrightness} />
+              <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0}  step={0.05} def={1} onChange={setContrast} />
+              <SliderRow label="Saturation" value={saturation} min={0}    max={2.0}  step={0.05} def={1} onChange={setSaturation} />
+            </Section>
+
+            {/* QUALITY */}
+            <Section label="Quality">
+              <div style={s.toggleRow}>
+                <Toggle on={burnSubs} onChange={setBurnSubs} label="Burn Subtitles" desc="Embed transcript captions into video" disabled={!result.srtContent} />
+                <Toggle on={enhance}  onChange={setEnhance}  label="Boost Quality"  desc="Sharpen + enhance brightness, contrast & color" />
+              </div>
+            </Section>
+
+            <button
+              onClick={handleEnhance}
+              disabled={enhancing}
+              style={{ ...s.btn, ...s.btnSecondary, marginBottom: 20, opacity: enhancing ? 0.5 : 1 }}
+            >
+              {enhancing ? <><span style={s.miniSpinner} /> Rendering…</> : 'Apply Edits & Render Video'}
+            </button>
+          </>
+        )}
 
         {/* CAPTION */}
         <Section label="Caption">
@@ -573,6 +590,43 @@ export default function NewPost() {
   );
 }
 
+function IgVideoUpload({ postId, onUploaded }) {
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr]             = useState('');
+  const ref = useRef();
+
+  async function handleFile(file) {
+    if (!file || !file.type.startsWith('video/')) return setErr('Please select a video file');
+    setErr(''); setUploading(true);
+    try {
+      const data = await api.attachVideo(postId, file);
+      onUploaded(data.videoUrl);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div>
+      {err && <div style={{ color: '#ff7070', fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <div
+        style={{ border: '2px dashed #333', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: 'pointer' }}
+        onClick={() => ref.current?.click()}
+        onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+        onDragOver={e => e.preventDefault()}
+      >
+        {uploading
+          ? <><span style={s.miniSpinner} /> Uploading…</>
+          : <><div style={{ fontSize: 24, marginBottom: 6 }}>📁</div><div style={{ color: '#666', fontSize: 13 }}>Tap to upload the video file</div></>
+        }
+      </div>
+      <input ref={ref} type="file" accept="video/*" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+    </div>
+  );
+}
+
 function Section({ label, children }) {
   return (
     <div style={{ marginBottom: 20 }}>
@@ -651,6 +705,7 @@ const s = {
   copyBtn:        { padding: '4px 12px', background: '#1a1a3a', border: '1px solid #3a3a6a', borderRadius: 6, color: '#7b6fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 },
   toggleRow:      { display: 'flex', flexDirection: 'column' },
   editGrid:       { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 },
+  igNotice:       { background: '#0a0e1a', border: '1px solid #1e2a4a', borderRadius: 10, padding: 16 },
   center:         { textAlign: 'center', padding: '60px 0' },
   processingTitle:{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8, marginTop: 16 },
   spinner:        { width: 44, height: 44, border: '3px solid #222', borderTopColor: '#833ab4', borderRadius: '50%', animation: 'spin .8s linear infinite', margin: '0 auto' },
