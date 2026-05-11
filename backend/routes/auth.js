@@ -86,19 +86,31 @@ router.get('/callback', async (req, res) => {
       throw new Error(`[Step1-token] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
     }
 
-    // Step 2 — skip token exchange for now; use the Instagram short-lived token directly.
-    // fb_exchange_token gives a Facebook-level token that graph.instagram.com rejects
-    // when IG account isn't linked to Facebook. ig_exchange_token will be re-tried once
-    // the basic flow is confirmed working.
-    const longToken = shortToken;
-    logger.info('OAuth step 2 skipped — using short-lived Instagram token');
+    // Step 2 — extend to long-lived token (60 days) via ig_exchange_token.
+    // Pass access_token as query param (it's the token being exchanged, not auth).
+    // client_id is NOT required for this endpoint per Meta docs.
+    let longToken = shortToken;
+    try {
+      const longRes = await axios.get('https://graph.instagram.com/access_token', {
+        params: { grant_type: 'ig_exchange_token', client_secret: appSecret, access_token: shortToken },
+        maxRedirects: 0,
+      });
+      longToken = longRes.data.access_token;
+      logger.info('OAuth step 2 OK: got long-lived token');
+    } catch (e) {
+      logger.warn(`OAuth step 2 failed (ig_exchange_token): ${JSON.stringify(e.response?.data)} — using short-lived token`);
+    }
 
-    // Step 3 — get user ID and username
-    logger.info('OAuth step 3: GET graph.instagram.com/me');
+    // Step 3 — get user ID and username.
+    // Use Authorization: Bearer header — Meta deprecated ?access_token= query param
+    // and newer endpoints return "Unsupported request - method type: get" when the
+    // old query-param form is used.
+    logger.info('OAuth step 3: GET graph.instagram.com/me (Bearer)');
     let igUserId, igName;
     try {
       const meRes = await axios.get('https://graph.instagram.com/me', {
-        params: { fields: 'id,username', access_token: longToken },
+        params:  { fields: 'id,username' },
+        headers: { Authorization: `Bearer ${longToken}` },
         maxRedirects: 0,
       });
       igUserId = String(meRes.data.id);
