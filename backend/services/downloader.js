@@ -105,11 +105,30 @@ function downloadVideo(url) {
   });
 }
 
+async function getInstagramMetadata(url) {
+  try {
+    const appId     = process.env.IG_APP_ID;
+    const appSecret = process.env.IG_APP_SECRET;
+    if (!appId || !appSecret) return { title: '', description: '', duration: 0 };
+
+    const axios = require('axios');
+    const res = await axios.get('https://graph.instagram.com/oembed', {
+      params: { url, access_token: `${appId}|${appSecret}`, fields: 'thumbnail_url,author_name' },
+      timeout: 10000
+    });
+    const title = res.data.title || res.data.author_name || '';
+    logger.info(`Instagram oEmbed fetched for: ${url}`);
+    return { title, description: title, duration: 0, uploader: res.data.author_name || '' };
+  } catch (err) {
+    logger.warn('Instagram oEmbed failed:', err.response?.data?.error?.message || err.message);
+    return { title: '', description: '', duration: 0 };
+  }
+}
+
 function getVideoMetadata(url) {
+  if (isInstagramUrl(url)) return getInstagramMetadata(url);
+
   return new Promise((resolve, reject) => {
-    if (isInstagramUrl(url) && !fs.existsSync(IG_COOKIES_PATH)) {
-      return resolve({ title: '', description: '', duration: 0 });
-    }
     const args = ['--dump-json', '--no-download', '--no-playlist', ...cookieArgs(), url];
     execFile('yt-dlp', args, { timeout: 30000 }, (err, stdout) => {
       if (err) return resolve({ title: '', description: '', duration: 0 });
