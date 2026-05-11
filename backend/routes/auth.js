@@ -42,7 +42,6 @@ router.get('/callback', async (req, res) => {
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
     const shortToken = tokenRes.data.access_token;
-    const igUserId   = String(tokenRes.data.user_id);
 
     // Exchange → long-lived token (60 days)
     const longRes = await axios.get('https://graph.instagram.com/access_token', {
@@ -50,14 +49,12 @@ router.get('/callback', async (req, res) => {
     });
     const longToken = longRes.data.access_token;
 
-    // Get username
-    let igName = 'Instagram Account';
-    try {
-      const info = await axios.get(`https://graph.instagram.com/v19.0/${igUserId}`, {
-        params: { fields: 'id,name,username', access_token: longToken }
-      });
-      igName = info.data.username || info.data.name || igName;
-    } catch {}
+    // Get real user ID and username from /me (never trust token exchange user_id — it can return the App ID)
+    const meRes = await axios.get('https://graph.instagram.com/v19.0/me', {
+      params: { fields: 'id,username,name', access_token: longToken }
+    });
+    const igUserId = String(meRes.data.id);
+    const igName   = meRes.data.username || meRes.data.name || 'Instagram Account';
 
     // Save or update account
     const existing = await getDB().get('SELECT id FROM accounts WHERE ig_user_id=$1', [igUserId]);
