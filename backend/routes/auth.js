@@ -87,19 +87,22 @@ router.get('/callback', async (req, res) => {
     }
 
     // Step 2 — exchange short-lived → long-lived token (60 days)
-    logger.info('OAuth step 2: GET graph.instagram.com/access_token');
-    let longToken;
+    // Business Login tokens are Facebook User Access Tokens; use fb_exchange_token on graph.facebook.com
+    // (ig_exchange_token on graph.instagram.com is for the old Basic Display API)
+    logger.info('OAuth step 2: GET graph.facebook.com/oauth/access_token (fb_exchange_token)');
+    let longToken = shortToken; // fallback: use short-lived token if exchange fails
     try {
-      const longRes = await axios.get('https://graph.instagram.com/access_token', {
-        params: { grant_type: 'ig_exchange_token', client_id: appId, client_secret: appSecret, access_token: shortToken },
+      const longRes = await axios.get('https://graph.facebook.com/oauth/access_token', {
+        params: { grant_type: 'fb_exchange_token', client_id: appId, client_secret: appSecret, fb_exchange_token: shortToken },
         maxRedirects: 0,
       });
       longToken = longRes.data.access_token;
-      logger.info('OAuth step 2 OK, got long token');
+      logger.info('OAuth step 2 OK, got long-lived token via fb_exchange_token');
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
-      logger.error(`OAuth step 2 FAILED status=${e.response?.status}: ${JSON.stringify(e.response?.data)}`);
-      throw new Error(`[Step2-longtoken] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
+      logger.warn(`OAuth step 2 failed (fb_exchange_token): ${msg} — falling back to short-lived token`);
+      logger.warn(`Step 2 response: ${JSON.stringify(e.response?.data)}`);
+      // Don't throw — continue with the short-lived token; user can reconnect if it expires
     }
 
     // Step 3 — get user ID and username
