@@ -30,7 +30,7 @@ OUTPUT 2 — INSTAGRAM CAPTION (THIS IS THE MOST IMPORTANT OUTPUT):
 - Written in PARAGRAPH STYLE — flowing prose, not bullet points or fragments
 - RULE #1 — MANDATORY: If the video features ANY celebrity, public figure, athlete, musician, actor, creator, or well-known personality — you MUST use their FULL REAL NAME. NEVER say "the artist", "the player", "someone", "they" without first naming them. Their name must appear in the very first sentence of the caption.
 - RULE #2 — CELEBRITY INTRODUCTION PARAGRAPH: Write a full paragraph introducing each celebrity — who they are, why the world knows them, their most famous work, achievements, records, cultural impact. Write this for someone who has NEVER heard of them before. If multiple celebrities appear, each gets their own paragraph.
-- RULE #3 — VIDEO MOMENT PARAGRAPH: After introducing the celebrity/celebrities, write a separate paragraph describing exactly what is happening in THIS specific video — the moment, the scene, the performance, the reaction, the event, the achievement shown. Be specific: mention the event name, the song, the match, the show, the year if known.
+- RULE #3 — VIDEO MOMENT PARAGRAPH: After introducing the celebrity/celebrities, write a separate paragraph describing exactly what is happening in THIS specific video clip. You MUST draw this from the transcript and original post caption provided — use real words, song lyrics, quotes, or details from them. Mention the specific song name, event, match, show, moment, or achievement that appears in THIS clip. Do NOT write a generic paragraph that could apply to any video of this celebrity — it must be specific to THIS clip.
 - The caption should feel like a knowledgeable entertainment journalist wrote it for a premium page — informative, engaging, makes new fans want to follow
 - NEVER references the on-screen text, "the hook", "the edit", or "the meme"
 - NEVER includes @mentions or account handles
@@ -80,8 +80,8 @@ async function generateContent({ transcript, originalCaption, videoTitle, captio
   const style = customPrompt || STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
   const context = [
     videoTitle      && `Video title: ${videoTitle}`,
-    originalCaption && `Original description: ${originalCaption.substring(0, 300)}`,
-    transcript      && `Transcript: ${transcript.substring(0, 500)}`
+    originalCaption && `Original post caption (USE THIS to understand the specific moment/event): ${originalCaption.substring(0, 800)}`,
+    transcript      && `Audio transcript (USE THIS to identify who is speaking, what is being said, what is happening): ${transcript.substring(0, 1200)}`
   ].filter(Boolean).join('\n');
 
   logger.info(`Generating content (style: ${captionStyle})`);
@@ -93,7 +93,7 @@ async function generateContent({ transcript, originalCaption, videoTitle, captio
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
       ],
-      max_tokens: 1000,
+      max_tokens: 1200,
       temperature: 0.95
     });
     return parseResponse(completion.choices[0].message.content);
