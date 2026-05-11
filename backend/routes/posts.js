@@ -7,14 +7,21 @@ const logger = require('../services/logger');
 const router = express.Router();
 
 function getVideoPublicUrl(post) {
-  const localPath = post.enhanced_video_path || post.local_video_path;
-  if (localPath) {
-    const base = process.env.PUBLIC_URL;
-    if (!base) throw new Error('PUBLIC_URL is not set in .env. Instagram needs a public HTTPS URL to fetch the video. Use ngrok for local dev.');
-    return `${base.replace(/\/$/, '')}/uploads/${path.basename(localPath)}`;
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  const fs = require('fs');
+
+  // Prefer enhanced video, then original local file — only if file still exists on disk
+  for (const localPath of [post.enhanced_video_path, post.local_video_path]) {
+    if (localPath && fs.existsSync(localPath)) {
+      if (!base) throw new Error('PUBLIC_URL env var is not set. Add it in Render: PUBLIC_URL=https://instagram-manager-backend-ou34.onrender.com');
+      return `${base}/uploads/${path.basename(localPath)}`;
+    }
   }
+
+  // Fall back to original source URL (works for public HTTP URLs)
   if (post.video_url && post.video_url.startsWith('http')) return post.video_url;
-  throw new Error('No video URL available for this post');
+
+  throw new Error('Video file not found on server (Render may have restarted and cleared uploads). Please process the video again and post immediately.');
 }
 
 router.get('/', async (req, res, next) => {
@@ -56,7 +63,13 @@ router.post('/:id/publish', async (req, res, next) => {
       [new Date().toISOString(), mediaId, post.id]
     );
     res.json({ message: 'Reel posted successfully!', ig_media_id: mediaId });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // Extract Instagram API error detail if present
+    const igMsg = err.response?.data?.error?.message || err.response?.data?.error_message;
+    const msg = igMsg || err.message;
+    await getDB().run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [msg, req.params.id]).catch(() => {});
+    res.status(500).json({ error: msg });
+  }
 });
 
 router.post('/:id/schedule', async (req, res, next) => {

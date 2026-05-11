@@ -5,12 +5,18 @@ const { postReel } = require('./instagramPoster');
 const logger = require('./logger');
 
 function getVideoPublicUrl(post) {
+  const fs = require('fs');
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+
+  for (const localPath of [post.enhanced_video_path, post.local_video_path]) {
+    if (localPath && fs.existsSync(localPath)) {
+      if (!base) throw new Error('PUBLIC_URL env var is not set');
+      return `${base}/uploads/${path.basename(localPath)}`;
+    }
+  }
+
   if (post.video_url && post.video_url.startsWith('http')) return post.video_url;
-  const publicBase = process.env.PUBLIC_URL;
-  if (!publicBase) throw new Error('PUBLIC_URL env variable is required to post videos to Instagram');
-  const localPath = post.enhanced_video_path || post.local_video_path;
-  if (!localPath) throw new Error('No video path found for this post');
-  return `${publicBase.replace(/\/$/, '')}/uploads/${path.basename(localPath)}`;
+  throw new Error(`Video file missing for post ${post.id} — skipping`);
 }
 
 function startScheduler() {
