@@ -27,10 +27,16 @@ OUTPUT 1 — ON-SCREEN TEXT:
 - This is a visual asset, not part of the caption
 
 OUTPUT 2 — INSTAGRAM CAPTION:
-- A fully standalone, professional caption
-- Describes the celebrity/scene/performance/moment naturally
-- Reads like it was written by a premium entertainment or fan page
-- NEVER references the on-screen text, "the hook", "the edit", "the meme"
+- Written in PARAGRAPH STYLE — flowing prose, not bullet points or fragments
+- If the video features ANY celebrity, public figure, athlete, musician, actor, influencer, or well-known personality, you MUST:
+  • Identify them by their FULL REAL NAME (e.g. "Cristiano Ronaldo", "Dua Lipa", "LeBron James")
+  • Write a dedicated paragraph about who they are, what they are famous for, their biggest achievements, and why people love them
+  • Be specific and detailed — mention albums, movies, championships, records, or cultural impact
+  • If multiple celebrities appear, write a separate paragraph for each one
+- After the celebrity paragraph(s), write about the specific moment/scene/performance in the video
+- The caption must feel like it was written by a knowledgeable entertainment journalist, not a generic bot
+- NEVER say "the person in the video" or "someone" — always use real names if you can identify them
+- NEVER references the on-screen text, "the hook", "the edit", or "the meme"
 - NEVER includes @mentions or account handles
 - NEVER copies original description word-for-word
 - Must make complete sense even if the on-screen text is never seen
@@ -92,7 +98,7 @@ async function generateContent({ transcript, originalCaption, videoTitle, captio
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
       ],
-      max_tokens: 600,
+      max_tokens: 1000,
       temperature: 0.95
     });
     return parseResponse(completion.choices[0].message.content);
