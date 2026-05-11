@@ -24,7 +24,7 @@ const upload = multer({
   }
 });
 
-async function processVideo(videoPath, videoUrl, accountId) {
+async function processVideo(videoPath, videoUrl, accountId, meta = {}) {
   const account = accountId
     ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId])
     : null;
@@ -33,7 +33,10 @@ async function processVideo(videoPath, videoUrl, accountId) {
   const srtContent = segmentsToSRT(segments);
 
   const { caption, onScreenText } = await generateContent({
+    videoPath,
     transcript,
+    originalCaption: meta.description || '',
+    videoTitle:      meta.title || '',
     captionStyle: account?.caption_style || 'casual',
     customPrompt: account?.caption_prompt
   });
@@ -50,22 +53,10 @@ router.post('/process-url', async (req, res, next) => {
     const videoFile = await downloadVideo(url);
 
     const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions } =
-      await processVideo(videoFile.path, url, account_id);
+      await processVideo(videoFile.path, url, account_id, meta);
 
-    const account = account_id
-      ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [account_id])
-      : null;
-
-    let captionWithMeta = caption;
-    let hookWithMeta = hookText;
-    if (!captionWithMeta) {
-      const generated = await generateContent({
-        transcript, originalCaption: meta.description, videoTitle: meta.title,
-        captionStyle: account?.caption_style || 'casual', customPrompt: account?.caption_prompt
-      });
-      captionWithMeta = generated.caption;
-      hookWithMeta = generated.onScreenText || hookText;
-    }
+    const captionWithMeta = caption;
+    const hookWithMeta    = hookText;
 
     const postId = uuidv4();
     await getDB().run(
@@ -86,7 +77,7 @@ router.post('/process-file', upload.single('video'), async (req, res, next) => {
     const videoUrl = `/uploads/${req.file.filename}`;
 
     const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions } =
-      await processVideo(videoPath, null, account_id);
+      await processVideo(videoPath, null, account_id, {});
 
     const postId = uuidv4();
     await getDB().run(
