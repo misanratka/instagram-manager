@@ -47,12 +47,19 @@ router.post('/:id/publish', async (req, res, next) => {
     if (hookText !== undefined)  await db.run('UPDATE posts SET hook_text=$1    WHERE id=$2', [hookText, req.params.id]);
 
     const post = await db.get(
-      `SELECT p.*, a.ig_user_id, a.access_token
+      `SELECT p.*, a.ig_user_id, a.access_token, a.name as acct_name
        FROM posts p JOIN accounts a ON p.account_id = a.id
        WHERE p.id=$1`,
       [req.params.id]
     );
     if (!post) return res.status(400).json({ error: 'Post not found, or no account selected for this post' });
+
+    if (!post.ig_user_id) {
+      return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Instagram User ID. Go to Accounts → Edit to add it.` });
+    }
+    if (!post.access_token) {
+      return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Access Token. Go to Accounts and click "Connect Instagram" to reconnect this account.` });
+    }
 
     const videoUrl = getVideoPublicUrl(post);
     const finalCaption = post.final_caption || post.generated_caption || '';
@@ -67,8 +74,12 @@ router.post('/:id/publish', async (req, res, next) => {
         [new Date().toISOString(), mediaId, post.id]
       ))
       .catch(err => {
-        const msg = err.response?.data?.error?.message || err.response?.data?.error_message || err.message;
-        logger.error(`Background publish failed for ${post.id}: ${msg}`);
+        const igErr = err.response?.data?.error;
+        let msg = igErr?.message || err.response?.data?.error_message || err.message;
+        if (igErr?.code === 190 || msg?.toLowerCase().includes('session has expired') || msg?.toLowerCase().includes('access token')) {
+          msg = `Token expired for account "${post.acct_name}". Go to Accounts and click "Connect Instagram" to reconnect.`;
+        }
+        logger.error(`Background publish failed for post ${post.id}: ${msg}`);
         db.run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [msg, post.id]).catch(() => {});
       });
   } catch (err) {

@@ -9,7 +9,9 @@ const router = express.Router();
 router.get('/', async (req, res, next) => {
   try {
     const accounts = await getDB().all(
-      'SELECT id, name, username, ig_user_id, caption_style, caption_prompt, created_at FROM accounts ORDER BY created_at DESC'
+      `SELECT id, name, username, ig_user_id, caption_style, caption_prompt, created_at,
+              CASE WHEN access_token IS NOT NULL THEN 1 ELSE 0 END as has_token
+       FROM accounts ORDER BY created_at DESC`
     );
     res.json(accounts);
   } catch (err) { next(err); }

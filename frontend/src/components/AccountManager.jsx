@@ -157,6 +157,13 @@ export default function AccountManager() {
               <div>
                 <div style={s.acctName}>@{a.username}</div>
                 <div style={s.acctMeta}>{a.name} &bull; <span style={{ color: '#666' }}>{a.caption_style} style</span></div>
+                {(!a.ig_user_id || !a.has_token) ? (
+                  <div style={{ fontSize: 11, color: '#e8a838', marginTop: 3 }}>
+                    ⚠ {!a.ig_user_id ? 'No User ID' : ''}{!a.ig_user_id && !a.has_token ? ' · ' : ''}{!a.has_token ? 'No token — click "Connect Instagram" to link' : ''} — cannot auto-post
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: '#52c41a', marginTop: 3 }}>✓ Credentials set</div>
+                )}
                 {a.caption_prompt && <div style={s.acctPrompt}>{a.caption_prompt.substring(0, 80)}…</div>}
               </div>
             </div>

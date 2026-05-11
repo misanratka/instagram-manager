@@ -95,25 +95,38 @@ const NAMED_POSITIONS = {
 const SIZES = { small: 20, medium: 30, large: 44, xl: 60 };
 
 function buildCoverBox(overlay) {
-  const size = overlay.fontSize || SIZES[overlay.size] || 44;
-  const numSpaces = Math.max(overlay.text.length, 1);
-  const boxW = Math.round(numSpaces * size * 0.5) + 20;
-  const boxH = Math.round(size * 1.6);
   const color = overlay.bg === 'white' ? 'white' : 'black';
+  let xExpr, yExpr, wExpr, hExpr;
 
-  let xExpr, yExpr;
-  if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
-    const xc = (overlay.xPct / 100).toFixed(6);
-    const yc = (overlay.yPct / 100).toFixed(6);
-    xExpr = `iw*${xc}-${Math.floor(boxW / 2)}`;
-    yExpr = `ih*${yc}-${Math.floor(boxH / 2)}`;
+  if (overlay.coverWidthPct !== undefined && overlay.coverHeightPct !== undefined) {
+    const xc  = (overlay.xPct / 100).toFixed(6);
+    const yc  = (overlay.yPct / 100).toFixed(6);
+    const wPct = (overlay.coverWidthPct / 100).toFixed(6);
+    const hPct = (overlay.coverHeightPct / 100).toFixed(6);
+    wExpr = `iw*${wPct}`;
+    hExpr = `ih*${hPct}`;
+    xExpr = `iw*${xc}-(${wExpr})/2`;
+    yExpr = `ih*${yc}-(${hExpr})/2`;
   } else {
-    const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
-    xExpr = pos.x;
-    yExpr = pos.y;
+    const size = overlay.fontSize || SIZES[overlay.size] || 44;
+    const numSpaces = Math.max((overlay.text || '').length, 1);
+    const boxW = Math.round(numSpaces * size * 0.5) + 20;
+    const boxH = Math.round(size * 1.6);
+    if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
+      const xc = (overlay.xPct / 100).toFixed(6);
+      const yc = (overlay.yPct / 100).toFixed(6);
+      xExpr = `iw*${xc}-${Math.floor(boxW / 2)}`;
+      yExpr = `ih*${yc}-${Math.floor(boxH / 2)}`;
+    } else {
+      const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
+      xExpr = pos.x;
+      yExpr = pos.y;
+    }
+    wExpr = boxW;
+    hExpr = boxH;
   }
 
-  let filter = `drawbox=x=${xExpr}:y=${yExpr}:w=${boxW}:h=${boxH}:color=${color}:t=fill`;
+  let filter = `drawbox=x=${xExpr}:y=${yExpr}:w=${wExpr}:h=${hExpr}:color=${color}:t=fill`;
   if (overlay.startTime > 0 || overlay.endTime > 0) {
     filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
   }
@@ -156,7 +169,7 @@ function buildSingleLine(overlay, yOffsetPx) {
     fontcolor = '#111111';
     boxPart = ':box=1:boxcolor=white:boxborderw=10';
   } else {
-    fontcolor = overlay.color || 'white';
+    fontcolor = overlay.colorHex ? overlay.colorHex.replace('#', '0x') : (overlay.color || 'white');
     boxPart = ':borderw=2:bordercolor=black@0.8';
   }
 
@@ -168,12 +181,11 @@ function buildSingleLine(overlay, yOffsetPx) {
 }
 
 function buildDrawtext(overlay) {
-  if (!overlay.text) return null;
-
-  // Space-only text with a background = solid cover rectangle (hides underlying video text)
-  if (overlay.bg !== 'none' && overlay.text.trim() === '') {
+  // No text (or space-only) + background = solid cover rectangle
+  if (overlay.bg !== 'none' && (!overlay.text || overlay.text.trim() === '')) {
     return buildCoverBox(overlay);
   }
+  if (!overlay.text) return null;
 
   const lines = overlay.text.split('\n');
   const size  = overlay.fontSize || SIZES[overlay.size] || 44;
