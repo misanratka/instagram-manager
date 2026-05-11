@@ -2,8 +2,8 @@ services:
   - type: web
     name: instagram-manager-backend
     runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -18,5 +18,5 @@ services:
         sync: false
       - key: PUBLIC_URL
         sync: false
-      - key: INSTAGRAM_COOKIES
+      - key: INSTAGRAM_COOKIES_CONTENT
         sync: false

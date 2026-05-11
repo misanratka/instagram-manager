@@ -41,6 +41,13 @@ app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })
 );
 
+// Serve React frontend (built into /public by Dockerfile)
+const publicDir = path.join(__dirname, 'public');
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+  app.get('*', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+}
+
 app.use(errorHandler);
 
 async function start() {
