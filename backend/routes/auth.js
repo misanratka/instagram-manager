@@ -18,16 +18,21 @@ function cfg() {
 }
 
 // Step 1 — redirect user to Instagram login
+// Scope and format taken directly from Meta App Dashboard "Embed URL"
 router.get('/instagram', (req, res) => {
   const { appId, callbackUrl } = cfg();
-  const scope = 'instagram_business_basic,instagram_business_content_publish';
-  const state = Math.random().toString(36).slice(2);
-  const url = `https://www.instagram.com/oauth/authorize?` +
-    `client_id=${encodeURIComponent(appId)}` +
+  const scope = [
+    'instagram_business_basic',
+    'instagram_business_manage_messages',
+    'instagram_business_manage_comments',
+    'instagram_business_content_publish',
+    'instagram_business_manage_insights',
+  ].join(',');
+  const url = `https://www.instagram.com/oauth/authorize?force_reauth=true` +
+    `&client_id=${encodeURIComponent(appId)}` +
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&response_type=code` +
-    `&scope=${encodeURIComponent(scope)}` +
-    `&state=${state}`;
+    `&scope=${encodeURIComponent(scope)}`;
   res.redirect(url);
 });
 
