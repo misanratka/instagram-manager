@@ -74,12 +74,10 @@ function rawPost(urlStr, params) {
 // Step 1 — redirect user to Instagram login
 router.get('/instagram', (req, res) => {
   const { appId, callbackUrl } = cfg();
+  // Only Standard Access permissions — advanced ones need App Review which we haven't submitted
   const scope = [
     'instagram_business_basic',
-    'instagram_business_manage_messages',
-    'instagram_business_manage_comments',
     'instagram_business_content_publish',
-    'instagram_business_manage_insights',
   ].join(',');
   const url = `https://www.instagram.com/oauth/authorize?force_reauth=true` +
     `&client_id=${encodeURIComponent(appId)}` +
