@@ -89,11 +89,11 @@ function buildDrawtext(overlay) {
   if (!overlay.text || !overlay.text.trim()) return null;
   const size = SIZES[overlay.size] || 30;
   const escaped = overlay.text.trim()
-    .replace(/\\/g, ‘\\\\’)
-    .replace(/’/g, "’")
-    .replace(/:/g, ‘\\:’)
-    .replace(/\[/g, ‘\\[‘)
-    .replace(/\]/g, ‘\\]’);
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "'")
+    .replace(/:/g, '\\:')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
 
   let xExpr, yExpr;
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
@@ -102,31 +102,88 @@ function buildDrawtext(overlay) {
     xExpr = `(w*${xp})-(text_w/2)`;
     yExpr = `(h*${yp})-(text_h/2)`;
   } else {
-    const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS[‘bot-center’];
+    const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
     xExpr = pos.x;
     yExpr = pos.y;
   }
 
   let fontcolor, boxPart;
-  if (overlay.bg === ‘black’) {
-    fontcolor = ‘white’;
-    boxPart = ‘:box=1:boxcolor=black@0.85:boxborderw=10’;
-  } else if (overlay.bg === ‘white’) {
-    fontcolor = ‘#111111’;
-    boxPart = ‘:box=1:boxcolor=white@0.92:boxborderw=10’;
+  if (overlay.bg === 'black') {
+    fontcolor = 'white';
+    boxPart = ':box=1:boxcolor=black@0.85:boxborderw=10';
+  } else if (overlay.bg === 'white') {
+    fontcolor = '#111111';
+    boxPart = ':box=1:boxcolor=white@0.92:boxborderw=10';
   } else {
-    fontcolor = overlay.color || ‘white’;
-    boxPart = ‘:borderw=2:bordercolor=black@0.8’;
+    fontcolor = overlay.color || 'white';
+    boxPart = ':borderw=2:bordercolor=black@0.8';
   }
 
-  let filter = `drawtext=fontfile=’${FONT}’:text=’${escaped}’:fontsize=${size}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
+  let filter = `drawtext=fontfile='${FONT}':text='${escaped}':fontsize=${size}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
   if (overlay.startTime > 0 || overlay.endTime > 0) {
-    filter += `:enable=’between(t,${overlay.startTime || 0},${overlay.endTime || 999})’`;
+    filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
   }
   return filter;
 }
 
-async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubtitles, enhance, trim, adjustments, speed, cropRatio }) {
+// Convert SRT segments to word-by-word ASS subtitle string for motion styles
+function segmentsToWordASS(segments, style) {
+  if (!segments || segments.length === 0) return null;
+
+  // Build approximate word list from segments
+  const words = [];
+  for (const seg of segments) {
+    const raw = seg.text.trim().split(/\s+/).filter(Boolean);
+    if (!raw.length) continue;
+    const duration = Math.max(0.05, seg.end - seg.start);
+    const perWord = duration / raw.length;
+    raw.forEach((w, i) => {
+      words.push({ word: w, start: seg.start + i * perWord, end: seg.start + (i + 1) * perWord });
+    });
+  }
+  if (!words.length) return null;
+
+  function toT(s) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    const cs = Math.round((s % 1) * 100);
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+  }
+
+  const PALETTE = ['&H0000FFFF', '&H0055FF00', '&H00FF00FF', '&H000080FF', '&H00FF8000'];
+  const isColor = style === 'word-color';
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,${isColor ? 36 : 32},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,5,10,10,80,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  const lines = words.map((w, i) => {
+    const colorTag = isColor ? `{\\c${PALETTE[i % PALETTE.length]}}` : '';
+    const fadeTag = '{\\fad(80,80)}';
+    return `Dialogue: 0,${toT(w.start)},${toT(w.end)},Default,,0,0,0,,${fadeTag}${colorTag}${w.word}`;
+  });
+
+  return header + lines.join('\n');
+}
+
+function writeSubtitleFile(content, inputPath, ext) {
+  const p = inputPath.replace(/\.[^/.]+$/, `.${ext}`);
+  fs.writeFileSync(p, content, 'utf8');
+  return p;
+}
+
+async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = [], burnSubtitles, subtitleStyle = 'standard', enhance, trim, adjustments, speed, cropRatio }) {
   const uploadDir = getUploadDir();
   const outFilename = `enhanced_${uuidv4()}.mp4`;
   const outputPath = path.join(uploadDir, outFilename);
@@ -172,12 +229,33 @@ async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubt
     vFilters.push('unsharp=5:5:1.5:5:5:0.0'); // then sharpen
   }
 
-  // 5. Burn-in subtitles
-  let srtPath = null;
+  // 5. Burn-in subtitles (3 styles)
+  let subPath = null;
   if (burnSubtitles && srtContent) {
-    srtPath = writeSRTFile(srtContent, inputPath);
-    const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-    vFilters.push(`subtitles='${escapedSrt}':force_style='FontSize=18,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2'`);
+    if (subtitleStyle === '3d-caps') {
+      // Bold 3D all-caps: Impact font, yellow text, heavy shadow
+      subPath = writeSRTFile(srtContent, inputPath);
+      const esc = subPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+      vFilters.push(`subtitles='${esc}':force_style='FontName=Impact,FontSize=26,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,ShadowColour=&H80000000,Bold=1,Shadow=4,Outline=2,Alignment=2,MarginV=40,AllCaps=1'`);
+    } else if (subtitleStyle === 'word-color' || subtitleStyle === 'word-clean') {
+      // Word-by-word motion (approximate timing from segments)
+      const assContent = segmentsToWordASS(segments || [], subtitleStyle);
+      if (assContent) {
+        subPath = writeSubtitleFile(assContent, inputPath, 'ass');
+        const esc = subPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+        vFilters.push(`ass='${esc}'`);
+      } else {
+        // Fallback to standard if no segments
+        subPath = writeSRTFile(srtContent, inputPath);
+        const esc = subPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+        vFilters.push(`subtitles='${esc}':force_style='FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2'`);
+      }
+    } else {
+      // Standard: white, bold, clean
+      subPath = writeSRTFile(srtContent, inputPath);
+      const esc = subPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+      vFilters.push(`subtitles='${esc}':force_style='FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,Bold=1,Alignment=2,MarginV=30'`);
+    }
   }
 
   // 6. Text overlays (drag-placed)
@@ -198,7 +276,7 @@ async function enhanceVideo({ inputPath, srtContent, textOverlays = [], burnSubt
   );
 
   await runFFmpeg(args, 'enhance');
-  if (srtPath && fs.existsSync(srtPath)) fs.unlinkSync(srtPath);
+  if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
 
   const stats = fs.statSync(outputPath);
   logger.info(`Enhanced video: ${outFilename} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);

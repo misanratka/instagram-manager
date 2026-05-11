@@ -81,6 +81,7 @@ router.post('/process-url', async (req, res, next) => {
       videoUrl: videoFile ? videoFile.url : null,
       metadata: meta,
       transcript: (transcript || '').substring(0, 600),
+      segments: segments || [],
       generatedCaption: caption,
       hookText,
       srtContent,
@@ -113,7 +114,7 @@ router.post('/process-file', upload.single('video'), async (req, res, next) => {
 
 router.post('/enhance/:postId', async (req, res, next) => {
   try {
-    const { burnSubtitles = false, enhance = false, textOverlays = [], trim, adjustments, speed, cropRatio } = req.body;
+    const { burnSubtitles = false, enhance = false, textOverlays = [], trim, adjustments, speed, cropRatio, subtitleStyle = 'standard', segments } = req.body;
     const post = await getDB().get('SELECT * FROM posts WHERE id=$1', [req.params.postId]);
     if (!post) return res.status(404).json({ error: 'Post not found' });
 
@@ -128,7 +129,7 @@ router.post('/enhance/:postId', async (req, res, next) => {
     if (!burnSubtitles && !enhance && textOverlays.length === 0 && !hasTrim && !hasAdj && !hasSpeed)
       return res.status(400).json({ error: 'Select at least one editing or enhancement option' });
 
-    const result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', textOverlays, burnSubtitles, enhance, trim, adjustments, speed, cropRatio });
+    const result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio });
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
     res.json({ enhancedVideoUrl: result.url, message: 'Video enhanced successfully' });
   } catch (err) { next(err); }

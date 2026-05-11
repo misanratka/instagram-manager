@@ -203,6 +203,8 @@ export default function NewPost() {
   const [textBoxes, setTextBoxes]       = useState([]);
   const [enhancedUrl, setEnhancedUrl]   = useState(null);
   const [showTextEditor, setShowTextEditor] = useState(false);
+  const [segments, setSegments]         = useState([]);
+  const [subtitleStyle, setSubtitleStyle] = useState('standard');
   const [burnSubs, setBurnSubs]         = useState(false);
   const [enhance, setEnhance]           = useState(false);
   const [enhancing, setEnhancing]       = useState(false);
@@ -254,6 +256,7 @@ export default function NewPost() {
       setResult(data);
       setCaption(data.generatedCaption || '');
       setOnScreenText(data.hookText || '');
+      setSegments(data.segments || []);
       setStep(STEPS.REVIEW);
     } catch (err) {
       setError(err.message);
@@ -274,6 +277,8 @@ export default function NewPost() {
       await api.updateCaption(result.postId, { caption, hookText: '' });
       const res = await api.enhanceVideo(result.postId, {
         burnSubtitles: burnSubs,
+        subtitleStyle,
+        segments,
         enhance,
         textOverlays:  textBoxes.filter(b => b.text.trim()),
         trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
@@ -485,6 +490,29 @@ export default function NewPost() {
             <Section label="Quality">
               <div style={s.toggleRow}>
                 <Toggle on={burnSubs} onChange={setBurnSubs} label="Burn Subtitles" desc="Embed transcript captions into video" disabled={!result.srtContent} />
+                {burnSubs && result.srtContent && (
+                  <div style={{ marginLeft: 50, marginTop: 4, marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: '#555', marginBottom: 6 }}>SUBTITLE STYLE</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {[
+                        { v: 'standard',   label: 'Standard',        desc: 'White bold text' },
+                        { v: '3d-caps',    label: '3D ALL CAPS',     desc: 'Yellow Impact, 3D shadow' },
+                        { v: 'word-color', label: 'Color Word Beat', desc: 'One word at a time, colorful' },
+                        { v: 'word-clean', label: 'Word Beat',       desc: 'One word at a time, clean' },
+                      ].map(st => (
+                        <button key={st.v} onClick={() => setSubtitleStyle(st.v)} style={{
+                          padding: '6px 12px', borderRadius: 7, cursor: 'pointer', fontSize: 11, fontWeight: 700, textAlign: 'left',
+                          background: subtitleStyle === st.v ? '#1a1a3a' : '#111',
+                          border: subtitleStyle === st.v ? '1.5px solid #7b6fff' : '1px solid #2a2a2a',
+                          color: subtitleStyle === st.v ? '#7b6fff' : '#666',
+                        }}>
+                          <div>{st.label}</div>
+                          <div style={{ fontWeight: 400, fontSize: 10, opacity: 0.7 }}>{st.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <Toggle on={enhance}  onChange={setEnhance}  label="Boost Quality"  desc="Sharpen + enhance brightness, contrast & color" />
               </div>
             </Section>
