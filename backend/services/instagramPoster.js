@@ -1,7 +1,7 @@
 const axios = require('axios');
 const logger = require('./logger');
 
-const GRAPH = 'https://graph.facebook.com/v19.0';
+const GRAPH = 'https://graph.instagram.com/v19.0';
 
 async function verifyToken(igUserId, accessToken) {
   try {
