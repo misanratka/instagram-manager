@@ -43,10 +43,15 @@ app.get('/api/health', (req, res) =>
 
 // Serve React frontend (built into /public by Dockerfile)
 const publicDir = path.join(__dirname, 'public');
-if (fs.existsSync(publicDir)) {
-  app.use(express.static(publicDir));
-  app.get('*', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
-}
+app.use(express.static(publicDir));
+app.get('*', (req, res) => {
+  const index = path.join(publicDir, 'index.html');
+  if (fs.existsSync(index)) {
+    res.sendFile(index);
+  } else {
+    res.status(503).send('Frontend not built. On Render: go to Settings → change Dockerfile Path to <code>./Dockerfile</code> and Root Directory to <code>.</code> (repo root), then redeploy.');
+  }
+});
 
 app.use(errorHandler);
 
