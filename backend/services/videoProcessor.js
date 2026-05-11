@@ -85,8 +85,40 @@ const NAMED_POSITIONS = {
 
 const SIZES = { small: 20, medium: 30, large: 44, xl: 60 };
 
+function buildCoverBox(overlay) {
+  const size = SIZES[overlay.size] || 44;
+  const numSpaces = Math.max(overlay.text.length, 1);
+  const boxW = Math.round(numSpaces * size * 0.5) + 20;
+  const boxH = Math.round(size * 1.6);
+  const color = overlay.bg === 'white' ? 'white@0.92' : 'black@0.85';
+
+  let xExpr, yExpr;
+  if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
+    const xc = (overlay.xPct / 100).toFixed(6);
+    const yc = (overlay.yPct / 100).toFixed(6);
+    xExpr = `iw*${xc}-${Math.floor(boxW / 2)}`;
+    yExpr = `ih*${yc}-${Math.floor(boxH / 2)}`;
+  } else {
+    const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
+    xExpr = pos.x;
+    yExpr = pos.y;
+  }
+
+  let filter = `drawbox=x=${xExpr}:y=${yExpr}:w=${boxW}:h=${boxH}:color=${color}:t=fill`;
+  if (overlay.startTime > 0 || overlay.endTime > 0) {
+    filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
+  }
+  return filter;
+}
+
 function buildDrawtext(overlay) {
   if (!overlay.text) return null;
+
+  // Space-only text with a background = solid cover rectangle (hides underlying video text)
+  if (overlay.bg !== 'none' && overlay.text.trim() === '') {
+    return buildCoverBox(overlay);
+  }
+
   const size = SIZES[overlay.size] || 30;
   const escaped = overlay.text
     .replace(/\\/g, '\\\\')

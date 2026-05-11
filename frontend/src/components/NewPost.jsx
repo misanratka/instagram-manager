@@ -164,11 +164,6 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
               <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)} style={{ padding: '5px 12px', borderRadius: 6, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1px solid #333', background: sel.bg === bg.v ? '#1a1a3a' : '#111', color: '#ccc', cursor: 'pointer', fontSize: 12, fontWeight: sel.bg === bg.v ? 700 : 400 }}>{bg.label}</button>
             ))}
 
-            {/* Size */}
-            <select value={sel.size} onChange={e => updateBox(sel.id, 'size', e.target.value)} style={{ padding: '6px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none', cursor: 'pointer', marginLeft: 4 }}>
-              {SIZES.map(sz => <option key={sz.value} value={sz.value}>{sz.label}</option>)}
-            </select>
-
             {/* Color swatches (only shown when bg is none) */}
             {sel.bg === 'none' && (
               <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
