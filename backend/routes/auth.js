@@ -86,35 +86,23 @@ router.get('/callback', async (req, res) => {
       throw new Error(`[Step1-token] ${msg} ${e.response?.data ? JSON.stringify(e.response.data) : ''}`);
     }
 
-    // Step 2 — exchange short-lived → long-lived token (60 days)
-    // Business Login tokens are Facebook User Access Tokens; use fb_exchange_token on graph.facebook.com
-    // (ig_exchange_token on graph.instagram.com is for the old Basic Display API)
-    logger.info('OAuth step 2: GET graph.facebook.com/oauth/access_token (fb_exchange_token)');
-    let longToken = shortToken; // fallback: use short-lived token if exchange fails
-    try {
-      const longRes = await axios.get('https://graph.facebook.com/oauth/access_token', {
-        params: { grant_type: 'fb_exchange_token', client_id: appId, client_secret: appSecret, fb_exchange_token: shortToken },
-        maxRedirects: 0,
-      });
-      longToken = longRes.data.access_token;
-      logger.info('OAuth step 2 OK, got long-lived token via fb_exchange_token');
-    } catch (e) {
-      const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
-      logger.warn(`OAuth step 2 failed (fb_exchange_token): ${msg} — falling back to short-lived token`);
-      logger.warn(`Step 2 response: ${JSON.stringify(e.response?.data)}`);
-      // Don't throw — continue with the short-lived token; user can reconnect if it expires
-    }
+    // Step 2 — skip token exchange for now; use the Instagram short-lived token directly.
+    // fb_exchange_token gives a Facebook-level token that graph.instagram.com rejects
+    // when IG account isn't linked to Facebook. ig_exchange_token will be re-tried once
+    // the basic flow is confirmed working.
+    const longToken = shortToken;
+    logger.info('OAuth step 2 skipped — using short-lived Instagram token');
 
     // Step 3 — get user ID and username
-    logger.info('OAuth step 3: GET graph.instagram.com/v22.0/me');
+    logger.info('OAuth step 3: GET graph.instagram.com/me');
     let igUserId, igName;
     try {
-      const meRes = await axios.get('https://graph.instagram.com/v22.0/me', {
-        params: { fields: 'id,username,name', access_token: longToken },
+      const meRes = await axios.get('https://graph.instagram.com/me', {
+        params: { fields: 'id,username', access_token: longToken },
         maxRedirects: 0,
       });
       igUserId = String(meRes.data.id);
-      igName   = meRes.data.username || meRes.data.name || 'Instagram Account';
+      igName   = meRes.data.username || 'Instagram Account';
       logger.info(`OAuth step 3 OK: user=${igName} id=${igUserId}`);
     } catch (e) {
       const msg = e.response?.data?.error?.message || e.response?.data?.error_message || e.message;
