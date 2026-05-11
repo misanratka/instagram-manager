@@ -246,7 +246,16 @@ export default function NewPost() {
   const [posting, setPosting]           = useState(false);
   const [error, setError]               = useState('');
   const [success, setSuccess]           = useState('');
+  const [popup, setPopup]               = useState(null); // { type: 'posted'|'scheduled', detail }
   const fileRef = useRef();
+
+  function showPopup(type, detail) {
+    setPopup({ type, detail });
+  }
+  function closePopup() {
+    setPopup(null);
+    reset();
+  }
 
   useEffect(() => { api.getAccounts().then(setAccounts).catch(() => {}); }, []);
 
@@ -312,8 +321,7 @@ export default function NewPost() {
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
       await api.publishPost(result.postId, { account_id: accountId, caption });
-      setSuccess('Submitted to Instagram! Check the Posts tab for live status.');
-      setTimeout(reset, 2500);
+      showPopup('posted');
     } catch (err) {
       setError(err.message);
       setPosting(false);
@@ -330,8 +338,7 @@ export default function NewPost() {
         scheduled_at: new Date(scheduleTime).toISOString(),
         account_id: accountId, caption
       });
-      setSuccess(`Scheduled for ${new Date(scheduleTime).toLocaleString()}`);
-      setTimeout(reset, 3000);
+      showPopup('scheduled', new Date(scheduleTime).toLocaleString());
     } catch (err) {
       setError(err.message);
       setPosting(false);
@@ -346,6 +353,29 @@ export default function NewPost() {
 
   const minTime    = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
   const previewUrl = enhancedUrl || result?.videoUrl;
+
+  // ── Confirmation popup ──
+  if (popup) {
+    const isPosted = popup.type === 'posted';
+    return (
+      <div style={s.center}>
+        <div style={popupStyle.box}>
+          <div style={popupStyle.icon}>{isPosted ? '🎉' : '🕐'}</div>
+          <div style={popupStyle.title}>
+            {isPosted ? 'Reel Submitted!' : 'Reel Scheduled!'}
+          </div>
+          <div style={popupStyle.desc}>
+            {isPosted
+              ? 'Your reel is being published to Instagram.\nCheck the Posts tab to see when it goes live.'
+              : `Your reel is scheduled for\n${popup.detail}`}
+          </div>
+          <button onClick={closePopup} style={popupStyle.btn}>
+            {isPosted ? 'Post Another' : 'Done'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Processing ──
   if (step === STEPS.PROCESSING) {
@@ -625,4 +655,12 @@ const s = {
   processingTitle:{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 8, marginTop: 16 },
   spinner:        { width: 44, height: 44, border: '3px solid #222', borderTopColor: '#833ab4', borderRadius: '50%', animation: 'spin .8s linear infinite', margin: '0 auto' },
   miniSpinner:    { display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .6s linear infinite' },
+};
+
+const popupStyle = {
+  box:   { background: '#0d0d14', border: '1px solid #2a2a4a', borderRadius: 16, padding: '40px 32px', maxWidth: 340, margin: '0 auto', textAlign: 'center' },
+  icon:  { fontSize: 56, marginBottom: 16 },
+  title: { fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 12 },
+  desc:  { fontSize: 14, color: '#888', lineHeight: 1.7, marginBottom: 28, whiteSpace: 'pre-line' },
+  btn:   { padding: '12px 32px', background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', color: '#fff', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: 'pointer' },
 };
