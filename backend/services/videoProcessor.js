@@ -86,7 +86,7 @@ const NAMED_POSITIONS = {
 const SIZES = { small: 20, medium: 30, large: 44, xl: 60 };
 
 function buildCoverBox(overlay) {
-  const size = SIZES[overlay.size] || 44;
+  const size = overlay.fontSize || SIZES[overlay.size] || 44;
   const numSpaces = Math.max(overlay.text.length, 1);
   const boxW = Math.round(numSpaces * size * 0.5) + 20;
   const boxH = Math.round(size * 1.6);
@@ -112,7 +112,7 @@ function buildCoverBox(overlay) {
 }
 
 function buildSingleLine(overlay, yOffsetPx) {
-  const size = SIZES[overlay.size] || 44;
+  const size = overlay.fontSize || SIZES[overlay.size] || 44;
   const escaped = overlay.text
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "'")
@@ -120,11 +120,15 @@ function buildSingleLine(overlay, yOffsetPx) {
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]');
 
+  const align = overlay.align || 'center';
+
   let xExpr, yExpr;
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
     const xp = (Number(overlay.xPct) / 100).toFixed(6);
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
-    xExpr = `(w*${xp})-(text_w/2)`;
+    if (align === 'left')       xExpr = `(w*${xp})`;
+    else if (align === 'right') xExpr = `(w*${xp})-(text_w)`;
+    else                        xExpr = `(w*${xp})-(text_w/2)`;
     const yBase = `(h*${yp})`;
     yExpr = yOffsetPx === 0
       ? `${yBase}-(text_h/2)`
@@ -163,7 +167,7 @@ function buildDrawtext(overlay) {
   }
 
   const lines = overlay.text.split('\n');
-  const size  = SIZES[overlay.size] || 44;
+  const size  = overlay.fontSize || SIZES[overlay.size] || 44;
   const lineH = Math.round(size * 1.4);
 
   const filters = lines.map((lineText, i) => {

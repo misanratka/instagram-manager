@@ -46,7 +46,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   const [dragging, setDragging] = useState(null);
 
   function addBox() {
-    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', bg: 'none', startTime: 0, endTime: 0 };
+    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', fontSize: 44, bg: 'none', align: 'center', startTime: 0, endTime: 0 };
     onChange(prev => [...prev, box]);
     setSelected(box.id);
   }
@@ -99,12 +99,13 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   const sel = textBoxes.find(b => b.id === selected);
 
   function getBoxStyle(box) {
-    const sizePx = SIZES.find(s => s.value === box.size)?.px ?? 18;
+    const sizePx = box.fontSize || 44;
     const base = {
       position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
       transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
       fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'pre',
       pointerEvents: 'all', borderRadius: 4, padding: '3px 10px',
+      textAlign: box.align || 'center',
       outline: selected === box.id ? '2px dashed rgba(255,255,255,0.7)' : 'none',
     };
     if (box.bg === 'black') return { ...base, background: 'rgba(0,0,0,0.85)', color: '#fff', textShadow: 'none' };
@@ -158,7 +159,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
             <button onClick={() => removeBox(sel.id)} style={{ background: 'transparent', border: '1px solid #4a1a1a', borderRadius: 6, color: '#ff7070', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>✕</button>
           </div>
 
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
             {/* Background */}
             <span style={{ fontSize: 11, color: '#555', marginRight: 2 }}>BG:</span>
             {[{ v: 'none', label: 'None' }, { v: 'black', label: '■ Black' }, { v: 'white', label: '□ White' }].map(bg => (
@@ -173,6 +174,26 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                 ))}
               </div>
             )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Font size — manual number input */}
+            <span style={{ fontSize: 11, color: '#555' }}>Size:</span>
+            <input
+              type="number" min={8} max={200}
+              value={sel.fontSize || 44}
+              onChange={e => updateBox(sel.id, 'fontSize', Math.max(8, Math.min(200, Number(e.target.value) || 44)))}
+              style={{ width: 58, padding: '5px 8px', background: '#111', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none' }}
+            />
+
+            {/* Alignment */}
+            <span style={{ fontSize: 11, color: '#555', marginLeft: 6 }}>Align:</span>
+            {[['left','◀ Left'],['center','≡ Center'],['right','Right ▶']].map(([val, label]) => (
+              <button key={val} onClick={() => updateBox(sel.id, 'align', val)}
+                style={{ padding: '5px 10px', borderRadius: 6, border: (sel.align || 'center') === val ? '2px solid #7b6fff' : '1px solid #333', background: (sel.align || 'center') === val ? '#1a1a3a' : '#111', color: '#ccc', cursor: 'pointer', fontSize: 11, fontWeight: (sel.align || 'center') === val ? 700 : 400 }}>
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       )}
