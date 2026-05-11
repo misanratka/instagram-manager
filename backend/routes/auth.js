@@ -1,5 +1,6 @@
 const express = require('express');
-const axios = require('axios');
+const https   = require('https');
+const axios   = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
 const logger = require('../services/logger');
@@ -17,8 +18,60 @@ function cfg() {
   };
 }
 
+// Debug endpoint — visit /auth/debug to verify env vars are set correctly
+router.get('/debug', (req, res) => {
+  const { callbackUrl, appId, frontendUrl } = cfg();
+  res.json({
+    callbackUrl,
+    frontendUrl,
+    appIdSet:     !!appId,
+    appIdPrefix:  appId ? appId.slice(0, 5) + '***' : 'NOT SET',
+    appSecretSet: !!process.env.IG_APP_SECRET,
+    BACKEND_URL:  process.env.BACKEND_URL  || '(not set — defaulting to localhost:3001)',
+    FRONTEND_URL: process.env.FRONTEND_URL || '(not set — defaulting to localhost:5173)',
+  });
+});
+
+// Raw HTTPS POST — bypasses axios redirect-handling which can downgrade POST→GET
+function rawPost(urlStr, params) {
+  return new Promise((resolve, reject) => {
+    const body = new URLSearchParams(params).toString();
+    const u    = new URL(urlStr);
+    const opts = {
+      hostname: u.hostname,
+      path:     u.pathname,
+      method:   'POST',
+      headers: {
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+        'Accept':         'application/json',
+      },
+    };
+    const req = https.request(opts, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (res.statusCode >= 400) {
+            const e = new Error(json.error_message || json.error?.message || `HTTP ${res.statusCode}`);
+            e.response = { data: json, status: res.statusCode };
+            reject(e);
+          } else {
+            resolve(json);
+          }
+        } catch {
+          reject(new Error(`Non-JSON from Instagram: ${data.slice(0, 300)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 // Step 1 — redirect user to Instagram login
-// Scope and format taken directly from Meta App Dashboard "Embed URL"
 router.get('/instagram', (req, res) => {
   const { appId, callbackUrl } = cfg();
   const scope = [
@@ -33,6 +86,7 @@ router.get('/instagram', (req, res) => {
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&response_type=code` +
     `&scope=${encodeURIComponent(scope)}`;
+  logger.info(`OAuth redirect: callbackUrl=${callbackUrl}`);
   res.redirect(url);
 });
 
@@ -41,27 +95,24 @@ router.get('/callback', async (req, res) => {
   const { code, error: igError } = req.query;
   const { appId, appSecret, callbackUrl, frontendUrl } = cfg();
 
+  logger.info(`OAuth callback received: code_present=${!!code} callbackUrl=${callbackUrl}`);
+
   if (igError || !code) {
     const desc = req.query.error_description || req.query.error_reason || igError || 'No code returned';
     return res.redirect(`${frontendUrl}?auth_error=${encodeURIComponent(desc)}`);
   }
 
   try {
-    // Exchange code → short-lived token
-    logger.info('OAuth step 1: exchanging code for short token');
-    logger.info(`OAuth step 1 params: client_id=${appId} redirect_uri=${callbackUrl} code_len=${code?.length}`);
-    const body = new URLSearchParams();
-    body.append('client_id', appId);
-    body.append('client_secret', appSecret);
-    body.append('grant_type', 'authorization_code');
-    body.append('redirect_uri', callbackUrl);
-    body.append('code', code);
-    const tokenRes = await axios.post(
-      'https://api.instagram.com/oauth/access_token',
-      body,
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-    const shortToken = tokenRes.data.access_token;
+    // Exchange code → short-lived token (using raw HTTPS to avoid axios redirect issues)
+    logger.info('OAuth step 1: POST to api.instagram.com/oauth/access_token');
+    const tokenData = await rawPost('https://api.instagram.com/oauth/access_token', {
+      client_id:    appId,
+      client_secret: appSecret,
+      grant_type:   'authorization_code',
+      redirect_uri: callbackUrl,
+      code,
+    });
+    const shortToken = tokenData.access_token;
     logger.info('OAuth step 1 OK, got short token');
 
     // Exchange → long-lived token (60 days)
@@ -74,7 +125,7 @@ router.get('/callback', async (req, res) => {
 
     // Get real user ID and username from /me
     logger.info('OAuth step 3: fetching /me');
-    const meRes = await axios.get('https://graph.instagram.com/v19.0/me', {
+    const meRes = await axios.get('https://graph.instagram.com/v22.0/me', {
       params: { fields: 'id,username,name', access_token: longToken }
     });
     const igUserId = String(meRes.data.id);
@@ -97,7 +148,6 @@ router.get('/callback', async (req, res) => {
   } catch (err) {
     logger.error('OAuth callback error:', err.message);
     logger.error('OAuth error response data:', JSON.stringify(err.response?.data));
-    logger.error('OAuth error status:', err.response?.status);
     const rawMsg = err.response?.data?.error_message
       || err.response?.data?.error?.message
       || err.response?.data?.message
