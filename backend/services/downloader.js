@@ -10,7 +10,6 @@ function getUploadDir() {
   return dir;
 }
 
-// Write INSTAGRAM_COOKIES_CONTENT env var to a file once at startup
 const IG_COOKIES_PATH = path.resolve(__dirname, '..', 'ig_cookies.txt');
 (function initCookies() {
   const content = process.env.INSTAGRAM_COOKIES_CONTENT;
@@ -28,11 +27,10 @@ function cookieArgs() {
   if (fs.existsSync(IG_COOKIES_PATH)) return ['--cookies', IG_COOKIES_PATH];
   if (process.env.COOKIES_FILE) {
     const p = path.resolve(process.env.COOKIES_FILE);
-    if (fs.existsSync(p)) { logger.info('Auth: cookies file from COOKIES_FILE'); return ['--cookies', p]; }
-    logger.warn(`COOKIES_FILE not found: ${p}`);
+    if (fs.existsSync(p)) return ['--cookies', p];
   }
-  const defaultFile = path.resolve(__dirname, '..', 'cookies.txt');
-  if (fs.existsSync(defaultFile)) { logger.info('Auth: backend/cookies.txt'); return ['--cookies', defaultFile]; }
+  const def = path.resolve(__dirname, '..', 'cookies.txt');
+  if (fs.existsSync(def)) return ['--cookies', def];
   return [];
 }
 
@@ -49,62 +47,139 @@ function isInstagramUrl(url) {
   } catch { return false; }
 }
 
-// Try to scrape the video CDN URL from Instagram page HTML
-async function scrapeInstagramVideoUrl(url) {
-  const axios = require('axios');
+// Pull a video CDN URL out of any HTML blob (embed page, og tags, JSON-LD, etc.)
+function extractVideoUrlFromHtml(html) {
+  if (!html || typeof html !== 'string') return null;
 
-  // User agents that sometimes get OG video tags from Instagram
-  const userAgents = [
-    'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-  ];
-
-  for (const ua of userAgents) {
+  // JSON-LD VideoObject — most structured and reliable
+  const ldBlocks = html.match(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (const block of ldBlocks) {
     try {
-      const res = await axios.get(url, {
-        headers: {
-          'User-Agent': ua,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache',
-        },
-        timeout: 15000,
-        maxRedirects: 5,
-      });
-
-      const html = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-
-      // og:video:secure_url first (HTTPS mp4)
-      const patterns = [
-        /<meta[^>]+property="og:video:secure_url"[^>]+content="([^"]+)"/i,
-        /<meta[^>]+content="([^"]+)"[^>]+property="og:video:secure_url"/i,
-        /<meta[^>]+property="og:video"[^>]+content="([^"]+)"/i,
-        /<meta[^>]+content="([^"]+)"[^>]+property="og:video"/i,
-      ];
-      for (const pat of patterns) {
-        const m = html.match(pat);
-        if (m && m[1] && (m[1].includes('.mp4') || m[1].includes('video'))) {
-          const cdnUrl = m[1].replace(/&amp;/g, '&');
-          logger.info(`Found CDN URL via og:video meta (ua: ${ua.substring(0, 20)}...)`);
-          return cdnUrl;
-        }
+      const inner = block.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+      const obj = JSON.parse(inner);
+      const items = Array.isArray(obj['@graph']) ? obj['@graph'] : [obj];
+      for (const item of items) {
+        if (item.contentUrl && item.contentUrl.includes('video')) return item.contentUrl;
       }
+    } catch {}
+  }
 
-      // Embedded JSON: "video_url":"..."
-      const videoUrlMatch = html.match(/"video_url"\s*:\s*"([^"]+)"/);
-      if (videoUrlMatch) {
-        const cdnUrl = videoUrlMatch[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/');
-        logger.info('Found CDN URL via embedded JSON video_url');
-        return cdnUrl;
-      }
-    } catch (e) {
-      logger.warn(`Instagram scrape attempt failed (ua: ${ua.substring(0, 20)}...): ${e.message}`);
+  // window.__additionalDataLoaded payload
+  const addl = html.match(/window\.__additionalDataLoaded\([^,]+,\s*(\{[\s\S]*?\})\s*\)/);
+  if (addl) {
+    try {
+      const data = JSON.parse(addl[1]);
+      const vu = data?.shortcode_media?.video_url;
+      if (vu) return vu.replace(/\\u0026/g, '&');
+    } catch {}
+  }
+
+  // "video_url":"..."
+  const vu = html.match(/"video_url"\s*:\s*"(https:[^"]+)"/);
+  if (vu) return vu[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/');
+
+  // <video src / <source src
+  const vtag = html.match(/<(?:video|source)[^>]+src=["'](https:[^"']+)["']/i);
+  if (vtag) return vtag[1].replace(/&amp;/g, '&');
+
+  // og:video meta tags
+  for (const pat of [
+    /<meta[^>]+property="og:video:secure_url"[^>]+content="([^"]+)"/i,
+    /<meta[^>]+content="([^"]+)"[^>]+property="og:video:secure_url"/i,
+    /<meta[^>]+property="og:video"[^>]+content="([^"]+)"/i,
+    /<meta[^>]+content="([^"]+)"[^>]+property="og:video"/i,
+  ]) {
+    const m = html.match(pat);
+    if (m && m[1] && (m[1].includes('.mp4') || m[1].includes('video'))) {
+      return m[1].replace(/&amp;/g, '&');
     }
   }
+
+  // Any cdninstagram / fbcdn URL ending in .mp4
+  const cdn = html.match(/(https:\/\/[^"'\s]+(?:cdninstagram|fbcdn)[^"'\s]+\.mp4[^"'\s]*)/);
+  if (cdn) return cdn[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/').replace(/&amp;/g, '&');
+
   return null;
 }
 
-// Download a file from a URL using streaming
+async function scrapeInstagramVideoUrl(url) {
+  const axios = require('axios');
+
+  const shortcodeMatch = url.match(/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/);
+  if (!shortcodeMatch) return null;
+  const sc = shortcodeMatch[1];
+
+  async function tryFetch(targetUrl, headers) {
+    const res = await axios.get(targetUrl, {
+      headers,
+      timeout: 20000,
+      maxRedirects: 5,
+      decompress: true,
+    });
+    const html = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    return extractVideoUrlFromHtml(html);
+  }
+
+  // ── Strategy 1: embed page (designed for external iframing) ──────────────────
+  // Instagram serves the embed player to any origin; blocking it would break all
+  // web embeds. The page contains the full shortcode_media JSON.
+  const embedUrls = [
+    `https://www.instagram.com/reel/${sc}/embed/`,
+    `https://www.instagram.com/p/${sc}/embed/`,
+    `https://www.instagram.com/reel/${sc}/embed/captioned/`,
+    `https://www.instagram.com/p/${sc}/embed/captioned/`,
+  ];
+  for (const eu of embedUrls) {
+    try {
+      logger.info(`Trying embed page: ${eu}`);
+      const found = await tryFetch(eu, {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.google.com/',
+        'sec-fetch-dest': 'iframe',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'cross-site',
+        'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+      });
+      if (found) { logger.info(`CDN URL found via embed page (${eu})`); return found; }
+    } catch (e) {
+      logger.warn(`Embed page fetch failed (${eu}): ${e.message}`);
+    }
+  }
+
+  // ── Strategy 2: facebookexternalhit — Instagram trusts Facebook's crawler ────
+  try {
+    logger.info('Trying facebookexternalhit UA on main URL');
+    const found = await tryFetch(url, {
+      'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-US,en;q=0.9',
+    });
+    if (found) { logger.info('CDN URL found via facebookexternalhit'); return found; }
+  } catch (e) {
+    logger.warn('facebookexternalhit scrape failed:', e.message);
+  }
+
+  // ── Strategy 3: mobile Chrome UA on main URL ─────────────────────────────────
+  try {
+    logger.info('Trying mobile Chrome UA on main URL');
+    const found = await tryFetch(url, {
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0.6367.82 Mobile/15E148 Safari/604.1',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-US,en;q=0.9',
+    });
+    if (found) { logger.info('CDN URL found via mobile Chrome UA'); return found; }
+  } catch (e) {
+    logger.warn('Mobile UA scrape failed:', e.message);
+  }
+
+  return null;
+}
+
 async function downloadFromUrl(sourceUrl, outputPath) {
   const axios = require('axios');
   const writer = fs.createWriteStream(outputPath);
@@ -114,8 +189,9 @@ async function downloadFromUrl(sourceUrl, outputPath) {
     responseType: 'stream',
     timeout: 300000,
     headers: {
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15',
       'Referer': 'https://www.instagram.com/',
+      'Accept': '*/*',
     },
   });
   return new Promise((resolve, reject) => {
@@ -125,7 +201,6 @@ async function downloadFromUrl(sourceUrl, outputPath) {
   });
 }
 
-// yt-dlp download wrapped in a promise
 function ytDlpDownload(url, outputPath, extraArgs = []) {
   return new Promise((resolve, reject) => {
     const args = [
@@ -153,68 +228,80 @@ async function downloadVideo(url) {
   const outputPath = path.join(uploadDir, filename);
   const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
-  function result() {
+  function buildResult() {
     const stats = fs.statSync(outputPath);
     logger.info(`Downloaded: ${filename} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
     return { path: outputPath, filename, size: stats.size, url: `${base}/uploads/${filename}` };
   }
 
+  function cleanup() {
+    try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
+  }
+
   if (isInstagramUrl(url)) {
-    // 1. Try HTML scraping (no auth needed)
-    logger.info('Instagram URL detected — attempting CDN scrape...');
+    // ── Step 1: HTML scrape (no auth) ────────────────────────────────────────
     try {
       const cdnUrl = await scrapeInstagramVideoUrl(url);
       if (cdnUrl) {
-        logger.info('Downloading from CDN URL...');
+        logger.info('Downloading Instagram video from CDN URL...');
         await downloadFromUrl(cdnUrl, outputPath);
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 50000) {
-          return result();
+          return buildResult();
         }
-        logger.warn('CDN download produced tiny/empty file, trying next method');
-        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        logger.warn('CDN download too small, discarding');
+        cleanup();
       }
     } catch (e) {
       logger.warn('CDN scrape/download failed:', e.message);
-      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      cleanup();
     }
 
-    // 2. Try yt-dlp with cookies
+    // ── Step 2: yt-dlp with cookies ──────────────────────────────────────────
     if (hasCookiesConfigured()) {
       logger.info('Falling back to yt-dlp with cookies...');
       try {
         await ytDlpDownload(url, outputPath, cookieArgs());
-        return result();
+        return buildResult();
       } catch (e) {
-        logger.error('yt-dlp with cookies failed:', e.message);
-        throw new Error('Instagram download failed. Your cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.');
+        logger.error('yt-dlp + cookies failed:', e.message);
+        cleanup();
+        throw new Error('Instagram download failed. Cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.');
       }
     }
 
-    // 3. No cookies — yt-dlp last resort (may work for some public posts)
-    logger.info('No cookies — trying yt-dlp without auth (may fail for private/logged-in content)...');
+    // ── Step 3: yt-dlp without auth (last resort for some public posts) ──────
+    logger.info('Trying yt-dlp without auth (may fail)...');
     try {
-      await ytDlpDownload(url, outputPath, []);
-      return result();
+      await ytDlpDownload(url, outputPath, [
+        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        '--add-header', 'Accept-Language:en-US,en;q=0.9',
+      ]);
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 50000) {
+        return buildResult();
+      }
+      cleanup();
     } catch (e) {
       logger.warn('yt-dlp without auth failed:', e.message);
+      cleanup();
     }
 
     throw new Error(
-      'Instagram download failed. Instagram blocks direct server downloads for Reels.\n\n' +
-      'To download this Reel:\n' +
-      '1. Open the Reel on your phone → tap ⋮ → Save\n' +
-      '2. Then use "Upload Video File" in the app to upload it\n\n' +
-      'Or set up Instagram cookies (INSTAGRAM_COOKIES_CONTENT env var on Render).'
+      'Instagram blocked this download (server IP restriction).\n\n' +
+      'Quick fix — download to your phone first:\n' +
+      '1. Open the Reel on Instagram → tap ⋮ → Download\n' +
+      '2. Come back here and use the "Upload Video File" button\n\n' +
+      'Or enable cookie-based downloads via INSTAGRAM_COOKIES_CONTENT in Render settings.'
     );
   }
 
-  // Non-Instagram: use yt-dlp directly
+  // Non-Instagram URLs — yt-dlp
   logger.info(`Downloading: ${url}`);
   try {
     await ytDlpDownload(url, outputPath, cookieArgs());
-    return result();
+    return buildResult();
   } catch (e) {
     logger.error('yt-dlp error:', e.message);
+    cleanup();
     throw new Error(`Download failed: ${e.message}`);
   }
 }
@@ -248,13 +335,7 @@ function getVideoMetadata(url) {
       if (err) return resolve({ title: '', description: '', duration: 0 });
       try {
         const m = JSON.parse(stdout);
-        resolve({
-          title: m.title || '',
-          description: m.description || '',
-          duration: m.duration || 0,
-          uploader: m.uploader || '',
-          thumbnail: m.thumbnail || ''
-        });
+        resolve({ title: m.title || '', description: m.description || '', duration: m.duration || 0, uploader: m.uploader || '', thumbnail: m.thumbnail || '' });
       } catch {
         resolve({ title: '', description: '', duration: 0 });
       }
