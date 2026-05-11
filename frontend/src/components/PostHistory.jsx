@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 
 const STATUS_COLOR = {
-  draft:     '#555',
-  scheduled: '#fcb045',
-  posted:    '#52c41a',
-  failed:    '#ff7070',
+  draft:      '#555',
+  publishing: '#7b6fff',
+  scheduled:  '#fcb045',
+  posted:     '#52c41a',
+  failed:     '#ff7070',
 };
 
-const ALL_STATUSES = ['all', 'draft', 'scheduled', 'posted', 'failed'];
+const ALL_STATUSES = ['all', 'draft', 'publishing', 'scheduled', 'posted', 'failed'];
 
 export default function PostHistory() {
   const [posts, setPosts]     = useState([]);
@@ -16,6 +17,14 @@ export default function PostHistory() {
   const [filter, setFilter]   = useState('all');
 
   useEffect(() => { load(); }, []);
+
+  // Auto-refresh every 5s while any post is publishing
+  useEffect(() => {
+    const hasPublishing = posts.some(p => p.status === 'publishing');
+    if (!hasPublishing) return;
+    const t = setTimeout(load, 5000);
+    return () => clearTimeout(t);
+  }, [posts]);
 
   async function load() {
     setLoading(true);
@@ -66,7 +75,7 @@ export default function PostHistory() {
               <div style={s.cardBody}>
                 <div style={s.meta}>
                   <span style={{ ...s.status, color: STATUS_COLOR[post.status] || '#555' }}>
-                    ● {post.status}
+                    {post.status === 'publishing' ? '⟳ ' : '● '}{post.status}
                   </span>
                   {post.username && (
                     <span style={s.acct}>@{post.username}</span>

@@ -312,8 +312,8 @@ export default function NewPost() {
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
       await api.publishPost(result.postId, { account_id: accountId, caption });
-      setSuccess('Reel posted to Instagram!');
-      setTimeout(reset, 3000);
+      setSuccess('Submitted to Instagram! Check the Posts tab for live status.');
+      setTimeout(reset, 2500);
     } catch (err) {
       setError(err.message);
       setPosting(false);

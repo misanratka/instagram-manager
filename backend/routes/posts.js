@@ -42,9 +42,9 @@ router.post('/:id/publish', async (req, res, next) => {
     const { account_id, caption, hookText } = req.body;
     const db = getDB();
 
-    if (account_id)           await db.run('UPDATE posts SET account_id=$1    WHERE id=$2', [account_id, req.params.id]);
-    if (caption !== undefined) await db.run('UPDATE posts SET final_caption=$1 WHERE id=$2', [caption, req.params.id]);
-    if (hookText !== undefined) await db.run('UPDATE posts SET hook_text=$1    WHERE id=$2', [hookText, req.params.id]);
+    if (account_id)            await db.run('UPDATE posts SET account_id=$1    WHERE id=$2', [account_id, req.params.id]);
+    if (caption !== undefined)  await db.run('UPDATE posts SET final_caption=$1 WHERE id=$2', [caption, req.params.id]);
+    if (hookText !== undefined)  await db.run('UPDATE posts SET hook_text=$1    WHERE id=$2', [hookText, req.params.id]);
 
     const post = await db.get(
       `SELECT p.*, a.ig_user_id, a.access_token
@@ -56,15 +56,22 @@ router.post('/:id/publish', async (req, res, next) => {
 
     const videoUrl = getVideoPublicUrl(post);
     const finalCaption = post.final_caption || post.generated_caption || '';
-    const mediaId = await postReel(post.ig_user_id, post.access_token, videoUrl, finalCaption);
 
-    await db.run(
-      `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, error_message=NULL WHERE id=$3`,
-      [new Date().toISOString(), mediaId, post.id]
-    );
-    res.json({ message: 'Reel posted successfully!', ig_media_id: mediaId });
+    // Mark as publishing and return immediately — Instagram processing happens in background
+    await db.run(`UPDATE posts SET status='publishing', error_message=NULL WHERE id=$1`, [post.id]);
+    res.json({ message: 'Publishing to Instagram…', status: 'publishing' });
+
+    postReel(post.ig_user_id, post.access_token, videoUrl, finalCaption)
+      .then(mediaId => db.run(
+        `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, error_message=NULL WHERE id=$3`,
+        [new Date().toISOString(), mediaId, post.id]
+      ))
+      .catch(err => {
+        const msg = err.response?.data?.error?.message || err.response?.data?.error_message || err.message;
+        logger.error(`Background publish failed for ${post.id}: ${msg}`);
+        db.run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [msg, post.id]).catch(() => {});
+      });
   } catch (err) {
-    // Extract Instagram API error detail if present
     const igMsg = err.response?.data?.error?.message || err.response?.data?.error_message;
     const msg = igMsg || err.message;
     await getDB().run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [msg, req.params.id]).catch(() => {});
