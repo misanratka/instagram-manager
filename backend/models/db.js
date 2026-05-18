@@ -37,9 +37,12 @@ async function initPostgres() {
       access_token  TEXT NOT NULL,
       caption_style TEXT NOT NULL DEFAULT 'casual',
       caption_prompt TEXT,
-      created_at    TIMESTAMPTZ DEFAULT NOW()
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      token_connected_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Safe migration: add column if it doesn't exist yet
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS token_connected_at TIMESTAMPTZ DEFAULT NOW()`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS posts (
       id                  TEXT PRIMARY KEY,
@@ -95,7 +98,8 @@ function initSQLite() {
       access_token  TEXT NOT NULL,
       caption_style TEXT NOT NULL DEFAULT 'casual',
       caption_prompt TEXT,
-      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      token_connected_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS posts (
       id                  TEXT PRIMARY KEY,

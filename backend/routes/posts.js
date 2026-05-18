@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const axios = require('axios');
 const { getDB } = require('../models/db');
 const { postReel } = require('../services/instagramPoster');
 const logger = require('../services/logger');
@@ -59,6 +60,21 @@ router.post('/:id/publish', async (req, res, next) => {
     }
     if (!post.access_token) {
       return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Access Token. Go to Accounts and click "Connect Instagram" to reconnect this account.` });
+    }
+
+    // Quick token validation — fail fast before the background job so user sees the error immediately
+    try {
+      await axios.get(`https://graph.instagram.com/v19.0/${post.ig_user_id}`, {
+        params: { fields: 'id', access_token: post.access_token },
+        timeout: 8000,
+      });
+    } catch (err) {
+      const igCode = err.response?.data?.error?.code;
+      const igMsg  = err.response?.data?.error?.message || '';
+      if (igCode === 190 || err.response?.status === 401 || igMsg.toLowerCase().includes('expired') || igMsg.toLowerCase().includes('invalid')) {
+        return res.status(400).json({ error: `Token expired for "${post.acct_name}". Go to Accounts and click "Connect Instagram" to reconnect, then try again.` });
+      }
+      logger.warn(`Token pre-check failed (non-auth error) for ${post.acct_name}: ${igMsg || err.message} — proceeding anyway`);
     }
 
     const videoUrl = getVideoPublicUrl(post);
