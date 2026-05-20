@@ -57,7 +57,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   }
 
   function addCoverBox() {
-    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 44, bg: 'black', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 35, coverHeightPct: 10 };
+    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 44, bg: 'dark', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 65, coverHeightPct: 14 };
     onChange(prev => [...prev, box]);
     setSelected(box.id);
   }
@@ -167,13 +167,22 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     const outline = selected === box.id ? '2px dashed rgba(255,255,255,0.7)' : 'none';
     const isCover = !box.text.trim() && box.bg !== 'none';
     if (isCover) {
+      const coverBg = {
+        black: 'linear-gradient(160deg, rgba(0,0,0,0.94), rgba(10,10,10,0.88))',
+        white: 'linear-gradient(160deg, rgba(255,255,255,0.94), rgba(235,235,235,0.88))',
+        dark:  'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))',
+        light: 'linear-gradient(160deg, rgba(255,255,255,0.72), rgba(255,255,255,0.50))',
+      }[box.bg] || 'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))';
+      const coverShadow = (box.bg === 'white' || box.bg === 'light')
+        ? '0 2px 14px rgba(255,255,255,0.25)'
+        : '0 2px 14px rgba(0,0,0,0.55)';
       return {
         position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
         transform: 'translate(-50%,-50%)',
-        width: `${box.coverWidthPct || 30}%`, height: `${box.coverHeightPct || 10}%`,
+        width: `${box.coverWidthPct || 65}%`, height: `${box.coverHeightPct || 14}%`,
         minWidth: 30, minHeight: 12,
-        background: box.bg === 'white' ? '#fff' : '#000',
-        cursor: 'move', borderRadius: 3, pointerEvents: 'all', outline,
+        background: coverBg, boxShadow: coverShadow,
+        cursor: 'move', borderRadius: 5, pointerEvents: 'all', outline,
       };
     }
     const sizePx = box.fontSize || 44;
@@ -233,18 +242,44 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <span style={{ fontSize: 12, color: '#888', fontWeight: 600 }}>Cover Block</span>
-                  <span style={{ fontSize: 11, color: '#444' }}>· drag to move · pinch to resize</span>
+                  <span style={{ fontSize: 11, color: '#444' }}>· drag to reposition</span>
                   <button onClick={() => removeBox(sel.id)}
                     style={{ padding: '6px 12px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}>✕ Remove</button>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#666' }}>Color</span>
-                  {[{ v: 'black', label: '■ Black' }, { v: 'white', label: '□ White' }].map(bg => (
+                {/* Style row */}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: '#666', minWidth: 32 }}>Style</span>
+                  {[
+                    { v: 'dark',  label: '◑ Dark',  desc: 'semi' },
+                    { v: 'black', label: '■ Black',  desc: 'solid' },
+                    { v: 'light', label: '◐ Light',  desc: 'semi' },
+                    { v: 'white', label: '□ White',  desc: 'solid' },
+                  ].map(bg => (
                     <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)}
-                      style={{ padding: '7px 16px', borderRadius: 7, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.v ? '#1e1e40' : '#141420', color: sel.bg === bg.v ? '#fff' : '#888', cursor: 'pointer', fontSize: 13, fontWeight: sel.bg === bg.v ? 700 : 400 }}>
+                      style={{ padding: '7px 14px', borderRadius: 7, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.v ? '#1e1e40' : '#141420', color: sel.bg === bg.v ? '#fff' : '#888', cursor: 'pointer', fontSize: 12, fontWeight: sel.bg === bg.v ? 700 : 400 }}>
                       {bg.label}
                     </button>
                   ))}
+                </div>
+                {/* Size row */}
+                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#666', minWidth: 32 }}>Size</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#555' }}>W</span>
+                    <button onClick={() => updateBox(sel.id, 'coverWidthPct', Math.max(5, (sel.coverWidthPct || 65) - 5))}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(sel.coverWidthPct || 65)}%</span>
+                    <button onClick={() => updateBox(sel.id, 'coverWidthPct', Math.min(100, (sel.coverWidthPct || 65) + 5))}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#555' }}>H</span>
+                    <button onClick={() => updateBox(sel.id, 'coverHeightPct', Math.max(2, (sel.coverHeightPct || 14) - 2))}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(sel.coverHeightPct || 14)}%</span>
+                    <button onClick={() => updateBox(sel.id, 'coverHeightPct', Math.min(80, (sel.coverHeightPct || 14) + 2))}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                  </div>
                 </div>
               </>
             ) : (
@@ -580,14 +615,20 @@ export default function NewPost() {
                   const isBlack = box.bg === 'black';
                   const isWhite = box.bg === 'white';
                   if (isCover) {
+                    const previewBg = {
+                      black: 'linear-gradient(160deg, rgba(0,0,0,0.94), rgba(10,10,10,0.88))',
+                      white: 'linear-gradient(160deg, rgba(255,255,255,0.94), rgba(235,235,235,0.88))',
+                      dark:  'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))',
+                      light: 'linear-gradient(160deg, rgba(255,255,255,0.72), rgba(255,255,255,0.50))',
+                    }[box.bg] || 'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))';
                     return (
                       <div key={box.id} style={{
                         position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
                         transform: 'translate(-50%,-50%)',
-                        width: `${box.coverWidthPct || 30}%`, height: `${box.coverHeightPct || 10}%`,
+                        width: `${box.coverWidthPct || 65}%`, height: `${box.coverHeightPct || 14}%`,
                         minWidth: 20, minHeight: 8,
-                        background: isWhite ? '#fff' : '#000',
-                        pointerEvents: 'none', borderRadius: 3,
+                        background: previewBg,
+                        pointerEvents: 'none', borderRadius: 4,
                       }} />
                     );
                   }

@@ -95,7 +95,7 @@ const NAMED_POSITIONS = {
 const SIZES = { small: 20, medium: 30, large: 44, xl: 60 };
 
 function buildCoverBox(overlay) {
-  const color = overlay.bg === 'white' ? 'white' : 'black';
+  const color = { white: 'white@0.93', light: 'white@0.70', dark: 'black@0.68', black: 'black@0.93' }[overlay.bg] || 'black@0.68';
   let xExpr, yExpr, wExpr, hExpr;
 
   if (overlay.coverWidthPct !== undefined && overlay.coverHeightPct !== undefined) {
