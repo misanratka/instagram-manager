@@ -16,9 +16,6 @@ const logger = require('./services/logger');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// INSTAGRAM_COOKIES is the old env var name — no longer used (replaced by INSTAGRAM_COOKIES_CONTENT in downloader.js)
-
-// Ensure uploads dir exists
 const uploadDir = path.resolve(process.env.UPLOAD_DIR || './uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -36,7 +33,10 @@ app.get('/api/health', (req, res) =>
   res.json({ status: 'ok', time: new Date().toISOString() })
 );
 
-// Serve React frontend (built into /public by Dockerfile)
+app.get('/health', (req, res) =>
+  res.json({ status: 'ok' })
+);
+
 const publicDir = path.join(__dirname, 'public');
 app.use(express.static(publicDir));
 app.get('*', (req, res) => {
@@ -44,7 +44,7 @@ app.get('*', (req, res) => {
   if (fs.existsSync(index)) {
     res.sendFile(index);
   } else {
-    res.status(503).send('Frontend not built. On Render: go to Settings → change Dockerfile Path to <code>./Dockerfile</code> and Root Directory to <code>.</code> (repo root), then redeploy.');
+    res.status(503).send('Frontend not built. On Render: go to Settings -> change Dockerfile Path to <code>./Dockerfile</code> and Root Directory to <code>.</code> (repo root), then redeploy.');
   }
 });
 
@@ -55,8 +55,13 @@ async function start() {
   startScheduler();
   app.listen(PORT, () => {
     logger.info(`Backend running at http://localhost:${PORT}`);
-    if (!process.env.GROQ_API_KEY) logger.warn('GROQ_API_KEY not set — transcription and AI captions will be skipped');
-    if (!process.env.PUBLIC_URL)     logger.warn('PUBLIC_URL not set — Instagram posting requires a public URL');
+    if (!process.env.GROQ_API_KEY) logger.warn('GROQ_API_KEY not set - transcription and AI captions will be skipped');
+    if (!process.env.PUBLIC_URL) logger.warn('PUBLIC_URL not set - Instagram posting requires a public URL');
+    if (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL) {
+      logger.info(`Keep-alive enabled for ${(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '')}`);
+    } else {
+      logger.warn('Keep-alive disabled - set PUBLIC_URL or RENDER_EXTERNAL_URL for Render self-ping');
+    }
   });
 }
 

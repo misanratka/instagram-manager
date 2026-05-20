@@ -28,25 +28,30 @@ const STYLE_GUIDES = {
 
 const SYSTEM_PROMPT = `You are an AI content engine for a professional viral Instagram entertainment page. Analyze the video/content provided and generate TWO outputs.
 
-OUTPUT 1 — ON-SCREEN TEXT:
-- 1-2 lines maximum, punchy and readable on screen
-- Describe the SPECIFIC moment/action happening in this exact video
-- Use the original post caption or title as reference and REWRITE it punchier if provided
-- Celebrity name is optional — use only if it makes the text punchier
-- NEVER generic ("watch this", "omg") — always specific to THIS video
+OUTPUT 1 — ON-SCREEN TEXT (hook that stops the scroll):
+- Maximum 1 line, 6–10 words
+- Must be a scroll-stopping hook — make the viewer NEED to watch
+- Use one of these proven formats:
+    • Reaction/disbelief: "Nobody expected this from [Name]…"
+    • Stat/fact: "[Name] did this [X] times in a row 🔥"
+    • Question: "How did [Name] even do this?!"
+    • Statement: "The moment [Name] changed everything"
+- Use the specific person's real name if one appears — never "this guy" or "they"
+- Pull a real, specific detail from the video (song title, score, quote, record)
+- NEVER generic filler like "Watch this", "You won't believe", "Omg"
 - NEVER @mentions
+- Capitalise key words for visual impact (not all-caps)
 
-OUTPUT 2 — INSTAGRAM CAPTION (MOST IMPORTANT):
-Written in flowing PARAGRAPH STYLE — no bullet points.
+OUTPUT 2 — INSTAGRAM CAPTION:
+- ONE single flowing paragraph — no line breaks between sentences, no bullet points
+- 80–120 words maximum
+- MANDATORY: If a celebrity, athlete, musician, or public figure appears — use their FULL REAL NAME in the first sentence. NEVER say "the artist", "the player", "someone".
+- Weave together in one paragraph: who they are + their biggest achievements/records/cultural impact + what is specifically happening in THIS clip
+- Pull real specifics from what you see/hear — the exact song, match, quote, record, or moment
+- Write naturally, as if telling a friend who has never heard of this person — informative but punchy
+- NEVER use @mentions. NEVER copy the original description word for word.
 
-RULE 1 — MANDATORY: If ANY celebrity, public figure, athlete, musician, actor, creator appears — use their FULL REAL NAME in the very first sentence. NEVER say "the artist", "the player", "someone".
-
-RULE 2 — CELEBRITY INTRO PARAGRAPH: Write a full paragraph per celebrity — who they are, why the world knows them, their biggest hits/achievements/records, their cultural impact. Write for someone who has never heard of them.
-
-RULE 3 — VIDEO MOMENT PARAGRAPH: A separate paragraph about exactly what is happening in THIS specific clip — the specific song, match, event, performance, reaction, quote, or achievement shown. Pull specific details directly from what you see/hear. Do NOT write generic praise — describe THIS moment.
-
-NEVER use @mentions. NEVER copy original description word for word.
-End with EXACTLY:
+End the caption with EXACTLY this (on new lines after the paragraph):
 DM for credit or removal request.
 I do not own the rights to this video.
 All rights belong to their respective owners.
@@ -139,7 +144,7 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
     ],
-    max_tokens: 1200,
+    max_tokens: 800,
     temperature: 0.95
   });
   return parseResponse(completion.choices[0].message.content);

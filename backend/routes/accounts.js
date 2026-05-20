@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
 const { verifyToken } = require('../services/instagramPoster');
+const { createFallbackSession, getSessionPath, getLegacySessionPath, removeSessionPath } = require('../services/instagramWebPoster');
 const logger = require('../services/logger');
 
 const router = express.Router();
@@ -9,17 +10,69 @@ const router = express.Router();
 router.get('/', async (req, res, next) => {
   try {
     const accounts = await getDB().all(
-      `SELECT id, name, username, ig_user_id, caption_style, caption_prompt, created_at,
-              CASE WHEN access_token IS NOT NULL THEN 1 ELSE 0 END as has_token
+      `SELECT id, name, username, ig_user_id, access_token, token_scopes, fallback_username, fallback_session_path, fallback_connected_at, caption_style, caption_prompt, created_at, token_connected_at,
+              CASE WHEN access_token IS NOT NULL AND access_token <> '' THEN 1 ELSE 0 END as has_token
        FROM accounts ORDER BY created_at DESC`
     );
     res.json(accounts);
   } catch (err) { next(err); }
 });
 
+router.post('/:id/fallback-session', async (req, res, next) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username and password are required to create an Instagram fallback session' });
+    }
+
+    const db = getDB();
+    const account = await db.get('SELECT id, name, username, ig_user_id FROM accounts WHERE id=$1', [req.params.id]);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const { sessionPath } = await createFallbackSession(account.id, username, password);
+    await db.run(
+      'UPDATE accounts SET fallback_username=$1, fallback_session_path=$2, fallback_connected_at=CURRENT_TIMESTAMP WHERE id=$3',
+      [username, sessionPath, account.id]
+    );
+
+    logger.info('Instagram fallback session saved for account', {
+      accountId: account.id,
+      username,
+      sessionPath,
+    });
+
+    res.json({ message: 'Instagram fallback session created', accountId: account.id, username, sessionPath });
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/fallback-session', async (req, res, next) => {
+  try {
+    const db = getDB();
+    const account = await db.get('SELECT id, fallback_session_path FROM accounts WHERE id=$1', [req.params.id]);
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const sessionPaths = [
+      account.fallback_session_path,
+      getSessionPath(account.id),
+      getLegacySessionPath(account.id),
+    ].filter(Boolean);
+
+    for (const sessionPath of sessionPaths) {
+      removeSessionPath(sessionPath);
+    }
+
+    await db.run(
+      'UPDATE accounts SET fallback_username=NULL, fallback_session_path=NULL, fallback_connected_at=NULL WHERE id=$1',
+      [account.id]
+    );
+
+    res.json({ message: 'Instagram fallback session cleared', accountId: account.id });
+  } catch (err) { next(err); }
+});
+
 router.post('/', async (req, res, next) => {
   try {
-    const { name, ig_user_id, access_token, caption_style, caption_prompt } = req.body;
+    const { name, ig_user_id, access_token, token_scopes, caption_style, caption_prompt } = req.body;
     if (!name || !ig_user_id || !access_token)
       return res.status(400).json({ error: 'name, ig_user_id, and access_token are required' });
 
@@ -36,9 +89,9 @@ router.post('/', async (req, res, next) => {
     }
 
     await getDB().run(
-      `INSERT INTO accounts (id, name, username, ig_user_id, access_token, caption_style, caption_prompt)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, name, username, ig_user_id || null, access_token || null, caption_style || 'casual', caption_prompt || null]
+      `INSERT INTO accounts (id, name, username, ig_user_id, access_token, token_scopes, caption_style, caption_prompt, token_connected_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)`,
+      [id, name, username, ig_user_id || null, access_token || null, token_scopes || null, caption_style || 'casual', caption_prompt || null]
     );
 
     res.json({ id, username, message: 'Account added successfully' });
@@ -47,13 +100,16 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   try {
-    const { caption_style, caption_prompt, access_token, name } = req.body;
+    const { caption_style, caption_prompt, access_token, token_scopes, name } = req.body;
     const db = getDB();
 
     if (access_token) {
       const existing = await db.get('SELECT ig_user_id FROM accounts WHERE id=$1', [req.params.id]);
       if (existing) await verifyToken(existing.ig_user_id, access_token);
-      await db.run('UPDATE accounts SET access_token=$1 WHERE id=$2', [access_token, req.params.id]);
+      await db.run(
+        'UPDATE accounts SET access_token=$1, token_scopes=COALESCE($2, token_scopes), token_connected_at=CURRENT_TIMESTAMP WHERE id=$3',
+        [access_token, token_scopes || null, req.params.id]
+      );
     }
 
     await db.run(

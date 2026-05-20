@@ -356,6 +356,8 @@ export default function NewPost() {
   const [success, setSuccess]           = useState('');
   const [popup, setPopup]               = useState(null); // { type: 'posted'|'scheduled', detail }
   const fileRef = useRef();
+  const PUBLISH_STATUS_POLL_MS = 3000;
+  const PUBLISH_STATUS_TIMEOUT_MS = 90000;
 
   function showPopup(type, detail) {
     setPopup({ type, detail });
@@ -428,13 +430,37 @@ export default function NewPost() {
 
   async function handlePublish() {
     if (!accountId) return setError('Select an Instagram account first');
-    setPosting(true); setError('');
+    setPosting(true); setError(''); setSuccess('');
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
       await api.publishPost(result.postId, { account_id: accountId, caption });
-      showPopup('posted');
+      setSuccess('Publishing to Instagram. Waiting for final status…');
+
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < PUBLISH_STATUS_TIMEOUT_MS) {
+        await new Promise(resolve => setTimeout(resolve, PUBLISH_STATUS_POLL_MS));
+        const posts = await api.getPosts().catch(() => []);
+        const latest = posts.find(p => p.id === result.postId);
+
+        if (!latest) continue;
+        if (latest.status === 'failed') {
+          setSuccess('');
+          setError(latest.error_message || 'Instagram publishing failed.');
+          setPosting(false);
+          return;
+        }
+        if (latest.status === 'posted') {
+          setSuccess('');
+          showPopup('posted');
+          return;
+        }
+      }
+
+      setSuccess('');
+      showPopup('posted', 'Your reel is still processing. If Instagram rejects it, the exact reason will appear in Posts.');
     } catch (err) {
       setError(err.message);
+    } finally {
       setPosting(false);
     }
   }
@@ -478,7 +504,7 @@ export default function NewPost() {
           </div>
           <div style={popupStyle.desc}>
             {isPosted
-              ? 'Your reel is being published to Instagram.\nCheck the Posts tab to see when it goes live.'
+              ? (popup.detail || 'Your reel is being published to Instagram.\nCheck the Posts tab to see when it goes live.')
               : `Your reel is scheduled for\n${popup.detail}`}
           </div>
           <button onClick={closePopup} style={popupStyle.btn}>
@@ -613,22 +639,37 @@ export default function NewPost() {
               <div style={s.editGrid}>
                 <div>
                   <div style={s.editLabel}>Trim (seconds)</div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input type="number" min="0" placeholder="Start" value={trimStart} onChange={e => setTrimStart(e.target.value)} style={{ ...s.timeInput, flex: 1 }} />
-                    <span style={{ color: '#444' }}>→</span>
-                    <input type="number" min="0" placeholder="End" value={trimEnd} onChange={e => setTrimEnd(e.target.value)} style={{ ...s.timeInput, flex: 1 }} />
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3, flex: 1 }}>
+                      <input type="number" min="0" placeholder="0" value={trimStart} onChange={e => setTrimStart(e.target.value)} style={{ ...s.timeInput, flex: 1, minWidth: 0 }} />
+                      <span style={{ color: '#555', fontSize: 11 }}>s</span>
+                    </div>
+                    <span style={{ color: '#383838' }}>—</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3, flex: 1 }}>
+                      <input type="number" min="0" placeholder="end" value={trimEnd} onChange={e => setTrimEnd(e.target.value)} style={{ ...s.timeInput, flex: 1, minWidth: 0 }} />
+                      <span style={{ color: '#555', fontSize: 11 }}>s</span>
+                    </div>
                   </div>
                 </div>
                 <div>
                   <div style={s.editLabel}>Playback Speed</div>
-                  <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={s.miniSelect}>
-                    {SPEEDS.map(sp => <option key={sp.value} value={sp.value}>{sp.label}</option>)}
-                  </select>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {SPEEDS.map(sp => (
+                      <button key={sp.value} onClick={() => setSpeed(sp.value)} style={{
+                        padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                        background: speed === sp.value ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#111',
+                        color: speed === sp.value ? '#fff' : '#777',
+                        border: speed === sp.value ? 'none' : '1px solid #252525',
+                      }}>
+                        {sp.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5}  step={0.05} def={0} onChange={setBrightness} />
-              <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0}  step={0.05} def={1} onChange={setContrast} />
-              <SliderRow label="Saturation" value={saturation} min={0}    max={2.0}  step={0.05} def={1} onChange={setSaturation} />
+              <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5}  step={0.05} def={0} onChange={setBrightness} format={v => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%'} />
+              <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0}  step={0.05} def={1} onChange={setContrast}   format={v => v.toFixed(1) + '×'} />
+              <SliderRow label="Saturation" value={saturation} min={0}    max={2.0}  step={0.05} def={1} onChange={setSaturation} format={v => v.toFixed(1) + '×'} />
             </Section>
 
             {/* QUALITY */}
@@ -819,13 +860,14 @@ function Section({ label, children }) {
   );
 }
 
-function SliderRow({ label, value, min, max, step, def, onChange }) {
+function SliderRow({ label, value, min, max, step, def, onChange, format }) {
+  const display = format ? format(value) : Number(value).toFixed(2);
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
         <span style={{ fontSize: 12, color: '#888' }}>{label}</span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#ccc', minWidth: 36, textAlign: 'right' }}>{Number(value).toFixed(2)}</span>
+          <span style={{ fontSize: 12, color: '#ccc', minWidth: 36, textAlign: 'right' }}>{display}</span>
           {value !== def && (
             <button onClick={() => onChange(def)} style={{ fontSize: 10, color: '#555', background: 'none', border: '1px solid #333', borderRadius: 4, padding: '1px 5px', cursor: 'pointer' }}>reset</button>
           )}
@@ -862,8 +904,7 @@ const s = {
   select:         { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', cursor: 'pointer' },
   textarea:       { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none' },
   charCount:      { textAlign: 'right', fontSize: 11, color: '#333', marginTop: 4 },
-  miniSelect:     { padding: '6px 8px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 12, outline: 'none', cursor: 'pointer' },
-  timeInput:      { width: 64, padding: '8px 10px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 13, outline: 'none' },
+  timeInput:      { padding: '8px 10px', background: '#111', border: '1px solid #252525', borderRadius: 6, color: '#ccc', fontSize: 13, outline: 'none' },
   dropZone:       { border: '2px dashed #252525', borderRadius: 10, padding: '36px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: 12 },
   dropIcon:       { fontSize: 28, marginBottom: 8, color: '#444' },
   fileRow:        { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },

@@ -291,18 +291,23 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   const br  = Number(adjustments?.brightness) || 0;
   const ct  = Number(adjustments?.contrast)   || 1;
   const sat = Number(adjustments?.saturation) || 1;
-  const finalBr  = enhance ? Math.min(0.5, br  + 0.05) : br;
-  const finalCt  = enhance ? Math.min(2.0, ct  * 1.05) : ct;
-  const finalSat = enhance ? Math.min(3.0, sat * 1.1)  : sat;
+  const finalBr  = enhance ? Math.min(0.5,  br  + 0.06) : br;
+  const finalCt  = enhance ? Math.min(2.0,  ct  * 1.10) : ct;
+  const finalSat = enhance ? Math.min(3.0,  sat * 1.20) : sat;
 
   if (Math.abs(finalBr) > 0.001 || Math.abs(finalCt - 1) > 0.001 || Math.abs(finalSat - 1) > 0.001) {
-    vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}`);
+    const gamma = enhance ? ':gamma=1.04' : '';
+    vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}${gamma}`);
   }
 
-  // 4. Noise reduction + sharpen on quality boost
+  // 4. Denoise → contrast-adaptive sharpen → unsharp on quality boost
   if (enhance) {
-    vFilters.push('hqdn3d=1.5:1.5:6:6'); // noise reduction first
-    vFilters.push('unsharp=5:5:1.5:5:5:0.0'); // then sharpen
+    // Better denoise: stronger luma pass, gentler chroma to preserve colour detail
+    vFilters.push('hqdn3d=2:1:4:3');
+    // Contrast-adaptive sharpening — recovers edge detail without ringing artefacts
+    vFilters.push('cas=strength=0.5');
+    // Light unsharp on top for extra crispness
+    vFilters.push('unsharp=3:3:0.8:3:3:0.0');
   }
 
   // 5. Burn-in subtitles (3 styles)
@@ -345,11 +350,9 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
-  args.push(
-    '-c:v', 'libx264', '-preset', 'fast', '-threads', '2',
-    '-crf', crf, '-c:a', 'aac', '-b:a', '128k',
-    '-movflags', '+faststart', outputPath
-  );
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-threads', '2', '-crf', crf);
+  if (enhance) args.push('-maxrate', '8M', '-bufsize', '16M');
+  args.push('-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outputPath);
 
   await runFFmpeg(args, 'enhance');
   if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);

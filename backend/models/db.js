@@ -35,6 +35,10 @@ async function initPostgres() {
       username      TEXT NOT NULL,
       ig_user_id    TEXT NOT NULL,
       access_token  TEXT NOT NULL,
+      token_scopes  TEXT,
+      fallback_username TEXT,
+      fallback_session_path TEXT,
+      fallback_connected_at TIMESTAMPTZ,
       caption_style TEXT NOT NULL DEFAULT 'casual',
       caption_prompt TEXT,
       created_at    TIMESTAMPTZ DEFAULT NOW(),
@@ -43,6 +47,10 @@ async function initPostgres() {
   `);
   // Safe migration: add column if it doesn't exist yet
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS token_connected_at TIMESTAMPTZ DEFAULT NOW()`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS token_scopes TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_username TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_session_path TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_connected_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS posts (
       id                  TEXT PRIMARY KEY,
@@ -96,6 +104,10 @@ function initSQLite() {
       username      TEXT NOT NULL,
       ig_user_id    TEXT NOT NULL,
       access_token  TEXT NOT NULL,
+      token_scopes  TEXT,
+      fallback_username TEXT,
+      fallback_session_path TEXT,
+      fallback_connected_at DATETIME,
       caption_style TEXT NOT NULL DEFAULT 'casual',
       caption_prompt TEXT,
       created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
