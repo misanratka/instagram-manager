@@ -42,13 +42,22 @@ function newBox() {
 // ── Fullscreen modal text-on-video editor ─────────────────────────────────────
 function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   const containerRef  = useRef();
+  const videoRef      = useRef();
   const taRef         = useRef();
   const boxesRef      = useRef(textBoxes);
   const [selected,  setSelected]  = useState(null);
-  const [dragging,  setDragging]  = useState(null); // { id }
-  const [pinching,  setPinching]  = useState(null); // { id, startDist, startSize }
+  const [dragging,  setDragging]  = useState(null);
+  const [pinching,  setPinching]  = useState(null);
+  const [playing,   setPlaying]   = useState(false);
 
   useEffect(() => { boxesRef.current = textBoxes; });
+
+  function togglePlay() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); setPlaying(true); }
+    else          { v.pause(); setPlaying(false); }
+  }
 
   function addBox() {
     const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 44, bg: 'none', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 30, coverHeightPct: 10 };
@@ -94,7 +103,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     const t = e.touches;
     if (t && t.length >= 2) {
       const box = boxesRef.current.find(b => b.id === id);
-      setPinching({ id, startDist: touchDist(t), startSize: box?.fontSize || 44, startW: box?.coverWidthPct || 30, startH: box?.coverHeightPct || 10 });
+      setPinching({ id, startDist: touchDist(t), startSize: box?.fontSize || 44, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
       setDragging(null);
     } else {
       setDragging({ id });
@@ -125,7 +134,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
         } else if (dragging) {
           // second finger landed — switch to pinch
           const box = boxesRef.current.find(b => b.id === dragging.id);
-          setPinching({ id: dragging.id, startDist: dist, startSize: box?.fontSize || 44, startW: box?.coverWidthPct || 30, startH: box?.coverHeightPct || 10 });
+          setPinching({ id: dragging.id, startDist: dist, startSize: box?.fontSize || 44, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
           setDragging(null);
         }
       } else if (dragging) {
@@ -203,10 +212,14 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#111', borderBottom: '1px solid #222', flexShrink: 0 }}>
         <button onClick={onClose} style={{ background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>✓ Done</button>
-        <span style={{ color: '#888', fontSize: 13 }}>Drag text to position</span>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {videoSrc && (
+            <button onClick={togglePlay} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#aaa', padding: '7px 12px', cursor: 'pointer', fontSize: 16 }}>
+              {playing ? '⏸' : '▶'}
+            </button>
+          )}
           <button onClick={addCoverBox} style={{ background: '#111', border: '1px solid #333', borderRadius: 8, color: '#888', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>▪ Cover</button>
-          <button onClick={addBox} style={{ background: '#1a1a2e', border: '1px solid #444', borderRadius: 8, color: '#ccc', padding: '8px 16px', cursor: 'pointer', fontSize: 14 }}>+ Add Text</button>
+          <button onClick={addBox} style={{ background: '#1a1a2e', border: '1px solid #444', borderRadius: 8, color: '#ccc', padding: '8px 16px', cursor: 'pointer', fontSize: 14 }}>+ Text</button>
         </div>
       </div>
 
@@ -217,7 +230,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
         style={{ flex: 1, position: 'relative', overflow: 'hidden', touchAction: 'none', userSelect: 'none', background: '#000' }}
       >
         {videoSrc
-          ? <video src={videoSrc} controls style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          ? <video ref={videoRef} src={videoSrc} loop style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }} />
           : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#444', fontSize: 14 }}>No video preview</div>
         }
         {textBoxes.map(box => (
