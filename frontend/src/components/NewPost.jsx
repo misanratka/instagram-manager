@@ -202,8 +202,10 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       pointerEvents: 'all', borderRadius: 4, padding: '3px 10px',
       textAlign: box.align || 'center', outline,
     };
-    if (box.bg === 'black') return { ...base, background: '#000', color: '#fff', textShadow: 'none' };
-    if (box.bg === 'white') return { ...base, background: '#fff', color: '#111', textShadow: 'none' };
+    if (box.bg === 'black') return { ...base, background: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)', color: '#fff', textShadow: 'none' };
+    if (box.bg === 'white') return { ...base, background: 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)', color: '#111', textShadow: 'none' };
+    if (box.bg === 'dark')  return { ...base, background: 'rgba(0,0,0,0.78)', color: '#fff', textShadow: 'none' };
+    if (box.bg === 'light') return { ...base, background: 'rgba(255,255,255,0.82)', color: '#111', textShadow: 'none' };
     return { ...base, background: 'transparent', color: box.colorHex || (box.color === 'black' ? '#111' : (box.color || 'white')), textShadow: '1px 1px 4px rgba(0,0,0,1),-1px -1px 4px rgba(0,0,0,1)' };
   }
 
@@ -323,18 +325,22 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                     autoFocus
                     value={sel.text}
                     onChange={e => updateBox(sel.id, 'text', e.target.value)}
-                    placeholder={'Type here… Enter = new line 🔥'}
+                    placeholder={'Type here…'}
                     rows={3}
                     style={{ flex: 1, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 8, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }}
                   />
-                  <button onClick={() => removeBox(sel.id)}
-                    style={{ padding: '10px 12px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>✕</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <button onClick={insertLineBreak} title="New line"
+                      style={{ padding: '9px 10px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 7, color: '#bbb', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>↵</button>
+                    <button onClick={() => removeBox(sel.id)}
+                      style={{ padding: '9px 10px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>✕</button>
+                  </div>
                 </div>
 
                 {/* Row 3: BG + Color swatches */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, color: '#666', minWidth: 20 }}>BG</span>
-                  {[{ v: 'none', label: 'None' }, { v: 'black', label: '■ Black' }, { v: 'white', label: '□ White' }].map(bg => (
+                  {[{ v: 'none', label: 'None' }, { v: 'dark', label: '◑ Dark' }, { v: 'black', label: '■ Black' }, { v: 'light', label: '◐ Light' }, { v: 'white', label: '□ White' }].map(bg => (
                     <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)}
                       style={{ padding: '7px 12px', borderRadius: 7, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.v ? '#1e1e40' : '#141420', color: sel.bg === bg.v ? '#fff' : '#888', cursor: 'pointer', fontSize: 13, fontWeight: sel.bg === bg.v ? 700 : 400 }}>
                       {bg.label}
@@ -621,8 +627,8 @@ export default function NewPost() {
                 {/* read-only text overlay preview */}
                 {textBoxes.map(box => {
                   const isCover = !box.text.trim() && box.bg !== 'none';
-                  const isBlack = box.bg === 'black';
-                  const isWhite = box.bg === 'white';
+                  const isBlack = box.bg === 'black' || box.bg === 'dark';
+                  const isWhite = box.bg === 'white' || box.bg === 'light';
                   if (isCover) {
                     const previewBg = {
                       black: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)',
@@ -647,7 +653,7 @@ export default function NewPost() {
                       position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
                       transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
                       fontFamily: 'sans-serif', pointerEvents: 'none', borderRadius: 4, padding: '2px 6px',
-                      background: isBlack ? '#000' : isWhite ? '#fff' : 'transparent',
+                      background: box.bg === 'black' ? 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)' : box.bg === 'white' ? 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)' : box.bg === 'dark' ? 'rgba(0,0,0,0.78)' : box.bg === 'light' ? 'rgba(255,255,255,0.82)' : 'transparent',
                       color: isBlack ? '#fff' : isWhite ? '#111' : (box.colorHex || box.color || 'white'),
                       textShadow: (!isBlack && !isWhite) ? '1px 1px 3px rgba(0,0,0,1)' : 'none',
                       whiteSpace: 'pre', textAlign: box.align || 'center',
