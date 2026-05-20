@@ -168,11 +168,11 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     const isCover = !box.text.trim() && box.bg !== 'none';
     if (isCover) {
       const coverBg = {
-        black: 'linear-gradient(160deg, rgba(0,0,0,0.94), rgba(10,10,10,0.88))',
-        white: 'linear-gradient(160deg, rgba(255,255,255,0.94), rgba(235,235,235,0.88))',
-        dark:  'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))',
-        light: 'linear-gradient(160deg, rgba(255,255,255,0.72), rgba(255,255,255,0.50))',
-      }[box.bg] || 'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))';
+        black: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)',
+        white: 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)',
+        dark:  'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)',
+        light: 'linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(200,190,255,0.35) 100%)',
+      }[box.bg] || 'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)';
       const coverShadow = (box.bg === 'white' || box.bg === 'light')
         ? '0 2px 14px rgba(255,255,255,0.25)'
         : '0 2px 14px rgba(0,0,0,0.55)';
@@ -310,13 +310,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                     autoFocus
                     value={sel.text}
                     onChange={e => updateBox(sel.id, 'text', e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        insertLineBreak();
-                      }
-                    }}
-                    placeholder={'Type here… press Enter for new line 🔥'}
+                    placeholder={'Type here… Enter = new line 🔥'}
                     rows={3}
                     style={{ flex: 1, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 8, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }}
                   />
@@ -618,11 +612,11 @@ export default function NewPost() {
                   const isWhite = box.bg === 'white';
                   if (isCover) {
                     const previewBg = {
-                      black: 'linear-gradient(160deg, rgba(0,0,0,0.94), rgba(10,10,10,0.88))',
-                      white: 'linear-gradient(160deg, rgba(255,255,255,0.94), rgba(235,235,235,0.88))',
-                      dark:  'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))',
-                      light: 'linear-gradient(160deg, rgba(255,255,255,0.72), rgba(255,255,255,0.50))',
-                    }[box.bg] || 'linear-gradient(160deg, rgba(0,0,0,0.68), rgba(0,0,0,0.48))';
+                      black: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)',
+                      white: 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)',
+                      dark:  'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)',
+                      light: 'linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(200,190,255,0.35) 100%)',
+                    }[box.bg] || 'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)';
                     return (
                       <div key={box.id} style={{
                         position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
