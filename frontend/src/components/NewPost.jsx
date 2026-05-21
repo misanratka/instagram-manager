@@ -12,6 +12,20 @@ const COLORS = [
   { label: 'Black',  value: 'black',   hex: '#111111' },
 ];
 
+const ALIGN_OPTIONS = [
+  { value: 'left', label: 'Left', icon: 'L' },
+  { value: 'center', label: 'Center', icon: 'C' },
+  { value: 'right', label: 'Right', icon: 'R' },
+];
+
+const BG_OPTIONS = [
+  { value: 'none',  label: 'None' },
+  { value: 'dark',  label: 'Dark' },
+  { value: 'black', label: 'Black' },
+  { value: 'light', label: 'Light' },
+  { value: 'white', label: 'White' },
+];
+
 const SIZES = [
   { label: 'Small',  value: 'small',  px: 13 },
   { label: 'Medium', value: 'medium', px: 18 },
@@ -39,34 +53,70 @@ function newBox() {
   return { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', size: 'large', bg: 'none', startTime: 0, endTime: 0 };
 }
 
+function getBackgroundFill(bg) {
+  if (bg === 'black') return 'linear-gradient(135deg, #000000 0%, #1c082f 100%)';
+  if (bg === 'white') return 'linear-gradient(135deg, #ffffff 0%, #e9deff 100%)';
+  if (bg === 'dark')  return 'linear-gradient(135deg, rgba(0,0,0,0.78) 0%, rgba(18,8,30,0.56) 100%)';
+  if (bg === 'light') return 'linear-gradient(135deg, rgba(255,255,255,0.84) 0%, rgba(233,222,255,0.52) 100%)';
+  return 'transparent';
+}
+
+function getBoxTextColor(box) {
+  if (box.bg === 'black' || box.bg === 'dark') return '#fff';
+  if (box.bg === 'white' || box.bg === 'light') return '#111';
+  return box.colorHex || (box.color === 'black' ? '#111' : (box.color || 'white'));
+}
+
+function measureBoxPx(box, rect) {
+  const isCover = !box.text.trim() && box.bg !== 'none';
+  return {
+    width: rect.width * (((isCover ? box.coverWidthPct : box.widthPct) || (isCover ? 65 : 58)) / 100),
+    height: isCover ? rect.height * ((box.coverHeightPct || 14) / 100) : Math.max((box.fontSize || 28) * 2.2, 56),
+  };
+}
+
 // ── Fullscreen modal text-on-video editor ─────────────────────────────────────
 function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
-  const containerRef  = useRef();
-  const videoRef      = useRef();
-  const taRef         = useRef();
-  const boxesRef      = useRef(textBoxes);
-  const [selected,  setSelected]  = useState(null);
-  const [dragging,  setDragging]  = useState(null);
-  const [pinching,  setPinching]  = useState(null);
-  const [playing,   setPlaying]   = useState(false);
+  const containerRef = useRef();
+  const videoRef = useRef();
+  const taRef = useRef();
+  const boxesRef = useRef(textBoxes);
+  const gestureRef = useRef(null);
+  const [selected, setSelected] = useState(null);
+  const [playing, setPlaying] = useState(false);
 
-  useEffect(() => { boxesRef.current = textBoxes; });
+  useEffect(() => {
+    boxesRef.current = textBoxes;
+  });
 
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); }
-    else          { v.pause(); setPlaying(false); }
+    if (v.paused) {
+      v.play();
+      setPlaying(true);
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
   }
 
   function addBox() {
-    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 28, bg: 'none', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 30, coverHeightPct: 10 };
+    const box = {
+      id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff',
+      size: 'large', fontSize: 28, bg: 'none', align: 'center', startTime: 0, endTime: 0,
+      widthPct: 58, coverWidthPct: 30, coverHeightPct: 10,
+    };
     onChange(prev => [...prev, box]);
     setSelected(box.id);
   }
 
   function addCoverBox() {
-    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 44, bg: 'dark', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 65, coverHeightPct: 14 };
+    const box = {
+      id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff',
+      size: 'large', fontSize: 44, bg: 'dark', align: 'center', startTime: 0, endTime: 0,
+      widthPct: 58, coverWidthPct: 65, coverHeightPct: 14,
+    };
     onChange(prev => [...prev, box]);
     setSelected(box.id);
   }
@@ -82,151 +132,215 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
 
   function insertLineBreak() {
     const ta = taRef.current;
+    const sel = boxesRef.current.find(b => b.id === selected);
     if (!ta || !sel) return;
     const start = ta.selectionStart ?? sel.text.length;
-    const end   = ta.selectionEnd   ?? sel.text.length;
-    const next  = sel.text.slice(0, start) + '\n' + sel.text.slice(end);
+    const end = ta.selectionEnd ?? sel.text.length;
+    const next = sel.text.slice(0, start) + '\n' + sel.text.slice(end);
     updateBox(sel.id, 'text', next);
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + 1, start + 1); });
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + 1, start + 1);
+    });
   }
 
-  function touchDist(t) {
-    const dx = t[0].clientX - t[1].clientX;
-    const dy = t[0].clientY - t[1].clientY;
-    return Math.sqrt(dx * dx + dy * dy);
+  function beginGesture(e, id, mode, handle = null) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    const box = boxesRef.current.find(b => b.id === id);
+    if (!rect || !box) return;
+    const { width, height } = measureBoxPx(box, rect);
+    setSelected(id);
+    gestureRef.current = {
+      id,
+      mode,
+      handle,
+      startX: e.clientX,
+      startY: e.clientY,
+      rect,
+      box,
+      boxPx: { width, height },
+    };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   }
 
   function handlePointerDown(e, id) {
-    e.preventDefault();
-    e.stopPropagation();
-    setSelected(id);
-    const t = e.touches;
-    if (t && t.length >= 2) {
-      const box = boxesRef.current.find(b => b.id === id);
-      setPinching({ id, startDist: touchDist(t), startSize: box?.fontSize || 28, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
-      setDragging(null);
-    } else {
-      setDragging({ id });
-      setPinching(null);
-    }
+    beginGesture(e, id, 'drag');
   }
 
   useEffect(() => {
-    if (!dragging && !pinching) return;
-
-    function onMove(e) {
+    function onPointerMove(e) {
+      const gesture = gestureRef.current;
+      if (!gesture) return;
       e.preventDefault();
-      const t = e.touches;
-      if (t && t.length >= 2) {
-        const dist = touchDist(t);
-        if (pinching) {
-          const scale = dist / pinching.startDist;
-          const box = boxesRef.current.find(b => b.id === pinching.id);
-          const isCover = box && !box.text.trim() && box.bg !== 'none';
-          if (isCover) {
-            const newW = Math.max(5, Math.min(95, pinching.startW * scale));
-            const newH = Math.max(2, Math.min(60, pinching.startH * scale));
-            onChange(prev => prev.map(b => b.id === pinching.id ? { ...b, coverWidthPct: newW, coverHeightPct: newH } : b));
-          } else {
-            const newSize = Math.max(8, Math.min(200, Math.round(pinching.startSize * scale)));
-            onChange(prev => prev.map(b => b.id === pinching.id ? { ...b, fontSize: newSize } : b));
-          }
-        } else if (dragging) {
-          // second finger landed — switch to pinch
-          const box = boxesRef.current.find(b => b.id === dragging.id);
-          setPinching({ id: dragging.id, startDist: dist, startSize: box?.fontSize || 28, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
-          setDragging(null);
-        }
-      } else if (dragging) {
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const cx = t ? t[0].clientX : e.clientX;
-        const cy = t ? t[0].clientY : e.clientY;
-        onChange(prev => prev.map(b => b.id === dragging.id ? {
-          ...b,
-          xPct: Math.max(2, Math.min(98, ((cx - rect.left) / rect.width) * 100)),
-          yPct: Math.max(2, Math.min(98, ((cy - rect.top) / rect.height) * 100)),
-        } : b));
+      const dx = e.clientX - gesture.startX;
+      const dy = e.clientY - gesture.startY;
+      const { box, rect, boxPx, mode, handle, id } = gesture;
+
+      if (mode === 'drag') {
+        const nextXPx = (box.xPct / 100) * rect.width + dx;
+        const nextYPx = (box.yPct / 100) * rect.height + dy;
+        const halfW = boxPx.width / 2;
+        const halfH = boxPx.height / 2;
+        const clampedX = Math.max(halfW, Math.min(rect.width - halfW, nextXPx));
+        const clampedY = Math.max(halfH, Math.min(rect.height - halfH, nextYPx));
+        onChange(prev => prev.map(item => item.id === id ? {
+          ...item,
+          xPct: (clampedX / rect.width) * 100,
+          yPct: (clampedY / rect.height) * 100,
+        } : item));
+        return;
       }
+
+      const isCover = !box.text.trim() && box.bg !== 'none';
+      const widthDirection = handle?.includes('w') ? -1 : 1;
+      const heightDirection = handle?.includes('n') ? -1 : 1;
+
+      if (isCover) {
+        const nextWidth = Math.max(18, Math.min(95, ((boxPx.width + (dx * widthDirection)) / rect.width) * 100));
+        const nextHeight = Math.max(6, Math.min(70, ((boxPx.height + (dy * heightDirection)) / rect.height) * 100));
+        onChange(prev => prev.map(item => item.id === id ? {
+          ...item,
+          coverWidthPct: nextWidth,
+          coverHeightPct: handle?.length === 1 ? item.coverHeightPct : nextHeight,
+        } : item));
+        return;
+      }
+
+      const nextWidthPct = Math.max(18, Math.min(92, ((boxPx.width + (dx * widthDirection)) / rect.width) * 100));
+      const sizeDelta = handle === 'e' || handle === 'w'
+        ? (nextWidthPct - (box.widthPct || 58)) * 0.35
+        : Math.max(dx * widthDirection, dy * heightDirection) * 0.14;
+      const nextFontSize = Math.max(14, Math.min(180, Math.round((box.fontSize || 28) + sizeDelta)));
+      onChange(prev => prev.map(item => item.id === id ? {
+        ...item,
+        widthPct: nextWidthPct,
+        fontSize: nextFontSize,
+      } : item));
     }
 
-    function onUp(e) {
-      const left = e.touches?.length ?? 0;
-      if (left === 0) { setDragging(null); setPinching(null); }
-      else if (left === 1 && pinching) { setDragging({ id: pinching.id }); setPinching(null); }
+    function endGesture() {
+      gestureRef.current = null;
     }
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-    window.addEventListener('touchmove', onMove,  { passive: false });
-    window.addEventListener('touchend',   onUp);
-    window.addEventListener('touchcancel', onUp);
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', endGesture);
+    window.addEventListener('pointercancel', endGesture);
     return () => {
-      window.removeEventListener('mousemove',   onMove);
-      window.removeEventListener('mouseup',     onUp);
-      window.removeEventListener('touchmove',   onMove);
-      window.removeEventListener('touchend',    onUp);
-      window.removeEventListener('touchcancel', onUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', endGesture);
+      window.removeEventListener('pointercancel', endGesture);
     };
-  }, [dragging, pinching, onChange]);
+  }, [onChange]);
 
   const sel = textBoxes.find(b => b.id === selected);
 
   function getBoxStyle(box) {
-    const outline = selected === box.id ? '2px dashed rgba(255,255,255,0.7)' : 'none';
+    const isActive = selected === box.id;
+    const outline = isActive ? '2px solid rgba(123,111,255,0.95)' : 'none';
     const isCover = !box.text.trim() && box.bg !== 'none';
     if (isCover) {
-      const coverBg = {
-        black: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)',
-        white: 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)',
-        dark:  'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)',
-        light: 'linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(200,190,255,0.35) 100%)',
-      }[box.bg] || 'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)';
       const coverShadow = (box.bg === 'white' || box.bg === 'light')
         ? '0 2px 14px rgba(255,255,255,0.25)'
         : '0 2px 14px rgba(0,0,0,0.55)';
       return {
-        position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
+        position: 'absolute',
+        left: box.xPct + '%',
+        top: box.yPct + '%',
         transform: 'translate(-50%,-50%)',
-        width: `${box.coverWidthPct || 65}%`, height: `${box.coverHeightPct || 14}%`,
-        minWidth: 30, minHeight: 12,
-        background: coverBg, boxShadow: coverShadow,
-        cursor: 'move', borderRadius: 5, pointerEvents: 'all', outline,
+        width: (box.coverWidthPct || 65) + '%',
+        height: (box.coverHeightPct || 14) + '%',
+        minWidth: 30,
+        minHeight: 12,
+        background: getBackgroundFill(box.bg),
+        boxShadow: isActive ? coverShadow + ', 0 0 0 1px rgba(255,255,255,0.18)' : coverShadow,
+        cursor: 'grab',
+        borderRadius: 8,
+        pointerEvents: 'all',
+        outline,
+        touchAction: 'none',
       };
     }
     const sizePx = box.fontSize || 28;
     const base = {
-      position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
-      transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
-      fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'pre-wrap',
-      wordBreak: 'break-word', maxWidth: '90%',
-      pointerEvents: 'all', borderRadius: 4, padding: '4px 12px',
-      textAlign: box.align || 'center', outline,
+      position: 'absolute',
+      left: box.xPct + '%',
+      top: box.yPct + '%',
+      transform: 'translate(-50%,-50%)',
+      fontSize: sizePx,
+      fontWeight: 'bold',
+      fontFamily: 'sans-serif',
+      cursor: 'grab',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      overflowWrap: 'anywhere',
+      width: (box.widthPct || 58) + '%',
+      maxWidth: '92%',
+      minWidth: 72,
+      lineHeight: 1.18,
+      letterSpacing: '-0.01em',
+      pointerEvents: 'all',
+      borderRadius: 10,
+      padding: '8px 12px',
+      textAlign: box.align || 'center',
+      outline,
+      touchAction: 'none',
+      boxShadow: isActive ? '0 0 0 1px rgba(255,255,255,0.18)' : 'none',
     };
-    if (box.bg === 'black') return { ...base, background: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)', color: '#fff', textShadow: 'none' };
-    if (box.bg === 'white') return { ...base, background: 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)', color: '#111', textShadow: 'none' };
-    if (box.bg === 'dark')  return { ...base, background: 'rgba(0,0,0,0.78)', color: '#fff', textShadow: 'none' };
-    if (box.bg === 'light') return { ...base, background: 'rgba(255,255,255,0.82)', color: '#111', textShadow: 'none' };
-    return { ...base, background: 'transparent', color: box.colorHex || (box.color === 'black' ? '#111' : (box.color || 'white')), textShadow: '1px 1px 4px rgba(0,0,0,1),-1px -1px 4px rgba(0,0,0,1)' };
+    if (box.bg !== 'none') return { ...base, background: getBackgroundFill(box.bg), color: getBoxTextColor(box), textShadow: 'none' };
+    return { ...base, background: 'transparent', color: getBoxTextColor(box), textShadow: '1px 1px 4px rgba(0,0,0,1),-1px -1px 4px rgba(0,0,0,1)' };
+  }
+
+  function renderHandles(box) {
+    if (selected !== box.id) return null;
+    const isCover = !box.text.trim() && box.bg !== 'none';
+    const handles = [
+      { key: 'nw', left: -12, top: -12, cursor: 'nwse-resize' },
+      { key: 'n', left: '50%', top: -12, cursor: 'ns-resize', transform: 'translateX(-50%)' },
+      { key: 'ne', right: -12, top: -12, cursor: 'nesw-resize' },
+      { key: 'e', right: -12, top: '50%', cursor: 'ew-resize', transform: 'translateY(-50%)' },
+      { key: 'se', right: -12, bottom: -12, cursor: 'nwse-resize' },
+      { key: 's', left: '50%', bottom: -12, cursor: 'ns-resize', transform: 'translateX(-50%)' },
+      { key: 'sw', left: -12, bottom: -12, cursor: 'nesw-resize' },
+      { key: 'w', left: -12, top: '50%', cursor: 'ew-resize', transform: 'translateY(-50%)' },
+    ];
+
+    return handles.map(handle => (
+      <button
+        key={handle.key}
+        type="button"
+        onPointerDown={e => beginGesture(e, box.id, 'resize', handle.key)}
+        style={{
+          position: 'absolute',
+          width: 24,
+          height: 24,
+          borderRadius: 999,
+          border: '2px solid #ffffff',
+          background: isCover ? 'rgba(123,111,255,0.9)' : '#7b6fff',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+          touchAction: 'none',
+          ...handle,
+        }}
+      />
+    ));
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#111', borderBottom: '1px solid #222', flexShrink: 0 }}>
-        <button onClick={onClose} style={{ background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>✓ Done</button>
+        <button onClick={onClose} style={{ background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>Done</button>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {videoSrc && (
             <button onClick={togglePlay} style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#aaa', padding: '7px 12px', cursor: 'pointer', fontSize: 16 }}>
-              {playing ? '⏸' : '▶'}
+              {playing ? 'Pause' : 'Play'}
             </button>
           )}
-          <button onClick={addCoverBox} style={{ background: '#111', border: '1px solid #333', borderRadius: 8, color: '#888', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>▪ Cover</button>
+          <button onClick={addCoverBox} style={{ background: '#111', border: '1px solid #333', borderRadius: 8, color: '#888', padding: '8px 12px', cursor: 'pointer', fontSize: 13 }}>Cover</button>
           <button onClick={addBox} style={{ background: '#1a1a2e', border: '1px solid #444', borderRadius: 8, color: '#ccc', padding: '8px 16px', cursor: 'pointer', fontSize: 14 }}>+ Text</button>
         </div>
       </div>
 
-      {/* Video canvas */}
       <div
         ref={containerRef}
         onClick={() => setSelected(null)}
@@ -240,110 +354,95 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
           <div
             key={box.id}
             style={getBoxStyle(box)}
-            onMouseDown={e => handlePointerDown(e, box.id)}
-            onTouchStart={e => handlePointerDown(e, box.id)}
+            onPointerDown={e => handlePointerDown(e, box.id)}
           >
             {box.text || <span style={{ opacity: 0.5 }}>tap to edit</span>}
+            {renderHandles(box)}
           </div>
         ))}
       </div>
 
-      {/* Edit panel — only when a box is selected */}
       {sel && (() => {
         const isCover = !sel.text.trim() && sel.bg !== 'none';
         return (
           <div style={{ background: '#0a0a12', borderTop: '2px solid #2a2a4a', padding: '14px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
             {isCover ? (
-              /* Cover block controls */
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <span style={{ fontSize: 12, color: '#888', fontWeight: 600 }}>Cover Block</span>
-                  <span style={{ fontSize: 11, color: '#444' }}>· drag to reposition</span>
-                  <button onClick={() => removeBox(sel.id)}
-                    style={{ padding: '6px 12px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}>✕ Remove</button>
+                  <span style={{ fontSize: 11, color: '#444' }}>drag or use outer handles</span>
+                  <button onClick={() => removeBox(sel.id)} style={{ padding: '6px 12px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 12, marginLeft: 'auto' }}>Remove</button>
                 </div>
-                {/* Style row */}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, color: '#666', minWidth: 32 }}>Style</span>
-                  {[
-                    { v: 'dark',  label: '◑ Dark',  desc: 'semi' },
-                    { v: 'black', label: '■ Black',  desc: 'solid' },
-                    { v: 'light', label: '◐ Light',  desc: 'semi' },
-                    { v: 'white', label: '□ White',  desc: 'solid' },
-                  ].map(bg => (
-                    <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)}
-                      style={{ padding: '7px 14px', borderRadius: 7, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.v ? '#1e1e40' : '#141420', color: sel.bg === bg.v ? '#fff' : '#888', cursor: 'pointer', fontSize: 12, fontWeight: sel.bg === bg.v ? 700 : 400 }}>
+                  {BG_OPTIONS.filter(bg => bg.value !== 'none').map(bg => (
+                    <button key={bg.value} onClick={() => updateBox(sel.id, 'bg', bg.value)} style={{ padding: '7px 14px', borderRadius: 7, border: sel.bg === bg.value ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.value ? '#1e1e40' : '#141420', color: sel.bg === bg.value ? '#fff' : '#888', cursor: 'pointer', fontSize: 12, fontWeight: sel.bg === bg.value ? 700 : 400 }}>
                       {bg.label}
                     </button>
                   ))}
                 </div>
-                {/* Size row */}
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: '#666', minWidth: 32 }}>Size</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 11, color: '#555' }}>W</span>
-                    <button onClick={() => updateBox(sel.id, 'coverWidthPct', Math.max(5, (sel.coverWidthPct || 65) - 5))}
-                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <button onClick={() => updateBox(sel.id, 'coverWidthPct', Math.max(18, (sel.coverWidthPct || 65) - 5))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>-</button>
                     <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(sel.coverWidthPct || 65)}%</span>
-                    <button onClick={() => updateBox(sel.id, 'coverWidthPct', Math.min(100, (sel.coverWidthPct || 65) + 5))}
-                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    <button onClick={() => updateBox(sel.id, 'coverWidthPct', Math.min(95, (sel.coverWidthPct || 65) + 5))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>+</button>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 11, color: '#555' }}>H</span>
-                    <button onClick={() => updateBox(sel.id, 'coverHeightPct', Math.max(2, (sel.coverHeightPct || 14) - 2))}
-                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <button onClick={() => updateBox(sel.id, 'coverHeightPct', Math.max(6, (sel.coverHeightPct || 14) - 2))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>-</button>
                     <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(sel.coverHeightPct || 14)}%</span>
-                    <button onClick={() => updateBox(sel.id, 'coverHeightPct', Math.min(80, (sel.coverHeightPct || 14) + 2))}
-                      style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    <button onClick={() => updateBox(sel.id, 'coverHeightPct', Math.min(70, (sel.coverHeightPct || 14) + 2))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>+</button>
                   </div>
                 </div>
               </>
             ) : (
-              /* Text box controls */
               <>
-                {/* Row 1: Alignment (top, most prominent) + font size */}
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#555', marginRight: 2 }}>Lines</span>
-                  {[['left','← Left'],['center','≡ Center'],['right','→ Right']].map(([val, label]) => (
-                    <button key={val} onClick={() => updateBox(sel.id, 'align', val)}
-                      style={{ padding: '7px 13px', borderRadius: 7, border: (sel.align || 'center') === val ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: (sel.align || 'center') === val ? '#1e1e40' : '#141420', color: (sel.align || 'center') === val ? '#fff' : '#666', cursor: 'pointer', fontSize: 12, fontWeight: (sel.align || 'center') === val ? 700 : 400 }}>
-                      {label}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: '#555', marginRight: 2 }}>Align</span>
+                  {ALIGN_OPTIONS.map(option => (
+                    <button key={option.value} onClick={() => updateBox(sel.id, 'align', option.value)} style={{ padding: '7px 13px', borderRadius: 7, border: (sel.align || 'center') === option.value ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: (sel.align || 'center') === option.value ? '#1e1e40' : '#141420', color: (sel.align || 'center') === option.value ? '#fff' : '#888', cursor: 'pointer', fontSize: 12, fontWeight: (sel.align || 'center') === option.value ? 700 : 500 }}>
+                      {option.icon} {option.label}
                     </button>
                   ))}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
-                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.max(8, (sel.fontSize || 28) - 4))}
-                      style={{ width: 30, height: 30, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.max(14, (sel.fontSize || 28) - 4))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>-</button>
                     <span style={{ fontSize: 12, color: '#888', minWidth: 30, textAlign: 'center' }}>{sel.fontSize || 28}</span>
-                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.min(200, (sel.fontSize || 28) + 4))}
-                      style={{ width: 30, height: 30, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.min(180, (sel.fontSize || 28) + 4))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>+</button>
                   </div>
                 </div>
 
-                {/* Row 2: textarea + action buttons */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#666', minWidth: 32 }}>Width</span>
+                  <button onClick={() => updateBox(sel.id, 'widthPct', Math.max(18, (sel.widthPct || 58) - 4))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>-</button>
+                  <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(sel.widthPct || 58)}%</span>
+                  <button onClick={() => updateBox(sel.id, 'widthPct', Math.min(92, (sel.widthPct || 58) + 4))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>+</button>
+                  <span style={{ fontSize: 11, color: '#555', marginLeft: 8 }}>better for 2-3 lines</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'stretch' }}>
                   <textarea
                     ref={taRef}
                     autoFocus
                     value={sel.text}
                     onChange={e => updateBox(sel.id, 'text', e.target.value)}
-                    placeholder={'Type here…'}
-                    rows={3}
-                    style={{ flex: 1, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 8, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }}
+                    placeholder="Type here..."
+                    rows={4}
+                    style={{ flex: 1, minHeight: 108, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 10, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}
                   />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <button onClick={insertLineBreak} title="New line"
-                      style={{ padding: '9px 10px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 7, color: '#bbb', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>↵</button>
-                    <button onClick={() => removeBox(sel.id)}
-                      style={{ padding: '9px 10px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>✕</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 54 }}>
+                    <button onClick={insertLineBreak} title="Insert line break" style={{ flex: 1, padding: '9px 10px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 14, lineHeight: 1, fontWeight: 700 }}>NL</button>
+                    <button onClick={() => removeBox(sel.id)} style={{ flex: 1, padding: '9px 10px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 10, color: '#ff6060', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>
+                      Del
+                    </button>
                   </div>
                 </div>
 
-                {/* Row 3: BG + Color swatches */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, color: '#666', minWidth: 20 }}>BG</span>
-                  {[{ v: 'none', label: 'None' }, { v: 'dark', label: '◑ Dark' }, { v: 'black', label: '■ Black' }, { v: 'light', label: '◐ Light' }, { v: 'white', label: '□ White' }].map(bg => (
-                    <button key={bg.v} onClick={() => updateBox(sel.id, 'bg', bg.v)}
-                      style={{ padding: '7px 12px', borderRadius: 7, border: sel.bg === bg.v ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.v ? '#1e1e40' : '#141420', color: sel.bg === bg.v ? '#fff' : '#888', cursor: 'pointer', fontSize: 13, fontWeight: sel.bg === bg.v ? 700 : 400 }}>
+                  {BG_OPTIONS.map(bg => (
+                    <button key={bg.value} onClick={() => updateBox(sel.id, 'bg', bg.value)} style={{ padding: '7px 12px', borderRadius: 7, border: sel.bg === bg.value ? '2px solid #7b6fff' : '1.5px solid #2a2a3a', background: sel.bg === bg.value ? '#1e1e40' : '#141420', color: sel.bg === bg.value ? '#fff' : '#888', cursor: 'pointer', fontSize: 13, fontWeight: sel.bg === bg.value ? 700 : 400 }}>
                       {bg.label}
                     </button>
                   ))}
@@ -351,9 +450,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                     <>
                       <div style={{ width: 1, height: 24, background: '#2a2a3a', margin: '0 4px' }} />
                       {COLORS.map(c => (
-                        <button key={c.value} title={c.label}
-                          onClick={() => onChange(prev => prev.map(b => b.id === sel.id ? { ...b, color: c.value, colorHex: c.hex } : b))}
-                          style={{ width: 26, height: 26, borderRadius: '50%', background: c.hex, border: sel.color === c.value ? '2.5px solid #fff' : '1.5px solid #333', cursor: 'pointer', flexShrink: 0 }} />
+                        <button key={c.value} title={c.label} onClick={() => onChange(prev => prev.map(b => b.id === sel.id ? { ...b, color: c.value, colorHex: c.hex } : b))} style={{ width: 28, height: 28, borderRadius: '50%', background: c.hex, border: sel.color === c.value ? '2.5px solid #fff' : '1.5px solid #333', cursor: 'pointer', flexShrink: 0 }} />
                       ))}
                     </>
                   )}
@@ -366,14 +463,14 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
 
       {!sel && textBoxes.length === 0 && (
         <div style={{ padding: '12px 16px', textAlign: 'center', color: '#444', fontSize: 13, flexShrink: 0 }}>
-          Tap "+ Add Text" to add text on the video
+          Tap "+ Text" to add text on the video
         </div>
       )}
     </div>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// Main component ────────────────────────────────────────────────────────────
 export default function NewPost() {
   const [accounts, setAccounts]         = useState([]);
   const [accountId, setAccountId]       = useState('');
@@ -631,19 +728,13 @@ export default function NewPost() {
                   const isBlack = box.bg === 'black' || box.bg === 'dark';
                   const isWhite = box.bg === 'white' || box.bg === 'light';
                   if (isCover) {
-                    const previewBg = {
-                      black: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)',
-                      white: 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)',
-                      dark:  'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)',
-                      light: 'linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(200,190,255,0.35) 100%)',
-                    }[box.bg] || 'linear-gradient(135deg, rgba(0,0,0,0.82) 0%, rgba(30,10,60,0.38) 100%)';
                     return (
                       <div key={box.id} style={{
                         position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
                         transform: 'translate(-50%,-50%)',
                         width: `${box.coverWidthPct || 65}%`, height: `${box.coverHeightPct || 14}%`,
                         minWidth: 20, minHeight: 8,
-                        background: previewBg,
+                        background: getBackgroundFill(box.bg),
                         pointerEvents: 'none', borderRadius: 4,
                       }} />
                     );
@@ -653,11 +744,12 @@ export default function NewPost() {
                     <div key={box.id} style={{
                       position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
                       transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
-                      fontFamily: 'sans-serif', pointerEvents: 'none', borderRadius: 4, padding: '2px 6px',
-                      background: box.bg === 'black' ? 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)' : box.bg === 'white' ? 'linear-gradient(135deg, #ffffff 0%, #e8e0ff 100%)' : box.bg === 'dark' ? 'rgba(0,0,0,0.78)' : box.bg === 'light' ? 'rgba(255,255,255,0.82)' : 'transparent',
-                      color: isBlack ? '#fff' : isWhite ? '#111' : (box.colorHex || box.color || 'white'),
+                      fontFamily: 'sans-serif', pointerEvents: 'none', borderRadius: 8, padding: '4px 8px',
+                      width: `${Math.max(18, (box.widthPct || 58) * 0.78)}%`,
+                      background: box.bg === 'none' ? 'transparent' : getBackgroundFill(box.bg),
+                      color: getBoxTextColor(box),
                       textShadow: (!isBlack && !isWhite) ? '1px 1px 3px rgba(0,0,0,1)' : 'none',
-                      whiteSpace: 'pre', textAlign: box.align || 'center',
+                      whiteSpace: 'pre-wrap', textAlign: box.align || 'center', lineHeight: 1.18,
                     }}>
                       {box.text}
                     </div>
