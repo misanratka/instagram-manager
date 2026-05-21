@@ -296,14 +296,14 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     if (selected !== box.id) return null;
     const isCover = !box.text.trim() && box.bg !== 'none';
     const handles = [
-      { key: 'nw', left: -12, top: -12, cursor: 'nwse-resize' },
-      { key: 'n', left: '50%', top: -12, cursor: 'ns-resize', transform: 'translateX(-50%)' },
-      { key: 'ne', right: -12, top: -12, cursor: 'nesw-resize' },
-      { key: 'e', right: -12, top: '50%', cursor: 'ew-resize', transform: 'translateY(-50%)' },
-      { key: 'se', right: -12, bottom: -12, cursor: 'nwse-resize' },
-      { key: 's', left: '50%', bottom: -12, cursor: 'ns-resize', transform: 'translateX(-50%)' },
-      { key: 'sw', left: -12, bottom: -12, cursor: 'nesw-resize' },
-      { key: 'w', left: -12, top: '50%', cursor: 'ew-resize', transform: 'translateY(-50%)' },
+      { key: 'nw', left: -16, top: -16, cursor: 'nwse-resize' },
+      { key: 'n',  left: '50%', top: -16, cursor: 'ns-resize',   transform: 'translateX(-50%)' },
+      { key: 'ne', right: -16, top: -16, cursor: 'nesw-resize' },
+      { key: 'e',  right: -16, top: '50%', cursor: 'ew-resize',  transform: 'translateY(-50%)' },
+      { key: 'se', right: -16, bottom: -16, cursor: 'nwse-resize' },
+      { key: 's',  left: '50%', bottom: -16, cursor: 'ns-resize', transform: 'translateX(-50%)' },
+      { key: 'sw', left: -16, bottom: -16, cursor: 'nesw-resize' },
+      { key: 'w',  left: -16, top: '50%', cursor: 'ew-resize',   transform: 'translateY(-50%)' },
     ];
 
     return handles.map(handle => (
@@ -313,13 +313,15 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
         onPointerDown={e => beginGesture(e, box.id, 'resize', handle.key)}
         style={{
           position: 'absolute',
-          width: 24,
-          height: 24,
+          width: 32,
+          height: 32,
           borderRadius: 999,
-          border: '2px solid #ffffff',
-          background: isCover ? 'rgba(123,111,255,0.9)' : '#7b6fff',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+          border: '2.5px solid #ffffff',
+          background: isCover ? 'rgba(123,111,255,0.95)' : '#7b6fff',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
           touchAction: 'none',
+          cursor: handle.cursor,
+          zIndex: 10,
           ...handle,
         }}
       />
@@ -365,7 +367,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       {sel && (() => {
         const isCover = !sel.text.trim() && sel.bg !== 'none';
         return (
-          <div style={{ background: '#0a0a12', borderTop: '2px solid #2a2a4a', padding: '14px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#0a0a12', borderTop: '2px solid #2a2a4a', padding: '10px 14px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
             {isCover ? (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -427,15 +429,14 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                     autoFocus
                     value={sel.text}
                     onChange={e => updateBox(sel.id, 'text', e.target.value)}
-                    placeholder="Type here..."
-                    rows={4}
-                    style={{ flex: 1, minHeight: 108, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 10, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}
+                    placeholder="Type here…"
+                    rows={3}
+                    enterKeyHint="enter"
+                    style={{ flex: 1, minHeight: 88, padding: '10px 12px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 10, color: '#fff', fontSize: 15, outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}
                   />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 54 }}>
-                    <button onClick={insertLineBreak} title="Insert line break" style={{ flex: 1, padding: '9px 10px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 14, lineHeight: 1, fontWeight: 700 }}>NL</button>
-                    <button onClick={() => removeBox(sel.id)} style={{ flex: 1, padding: '9px 10px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 10, color: '#ff6060', cursor: 'pointer', fontSize: 15, lineHeight: 1 }}>
-                      Del
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 50 }}>
+                    <button onClick={insertLineBreak} title="Insert line break" style={{ flex: 1, padding: '9px 8px', background: '#141420', border: '1.5px solid #3a3a5a', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>↵</button>
+                    <button onClick={() => removeBox(sel.id)} style={{ flex: 1, padding: '9px 8px', background: '#1a0808', border: '1px solid #4a1a1a', borderRadius: 10, color: '#ff6060', cursor: 'pointer', fontSize: 13, lineHeight: 1, fontWeight: 600 }}>Del</button>
                   </div>
                 </div>
 
