@@ -112,7 +112,7 @@ export default function AccountManager() {
               type="password"
               value={f.access_token}
               onChange={e => set('access_token', e.target.value)}
-              placeholder="EAAxxxxx… (long-lived page access token)"
+              placeholder="IGAAxxxxx… or EAAxxxxx… (long-lived access token)"
               style={s.input}
             />
             <div style={s.hint}>Page Access Token from Meta Graph API — only required if you want to auto-post</div>

@@ -9,6 +9,12 @@ const REQUIRED_SCOPES = [
   'instagram_business_content_publish',
 ];
 
+// IGAA tokens = new Instagram Login API (graph.instagram.com)
+// EAA tokens  = old Business Login API  (graph.facebook.com)
+function getGraphBase(accessToken) {
+  return (accessToken || '').startsWith('IGAA') ? READ_GRAPH : FB_GRAPH;
+}
+
 function getAppAccessToken() {
   const appId = process.env.IG_APP_ID;
   const appSecret = process.env.IG_APP_SECRET;
@@ -51,18 +57,15 @@ function logGraphError(action, err, meta = {}) {
 }
 
 async function verifyToken(igUserId, accessToken) {
-  const endpoint = `${FB_GRAPH}/${igUserId}`;
-  const params = { fields: 'id,name', access_token: accessToken };
+  const base = getGraphBase(accessToken);
+  const endpoint = `${base}/${igUserId}`;
+  const params = { fields: 'id,username,name', access_token: accessToken };
   try {
-    const res = await axios.get(endpoint, {
-      params,
-      timeout: 15000
-    });
-    return { username: res.data.name || igUserId, ...res.data };
+    const res = await axios.get(endpoint, { params, timeout: 15000 });
+    return { username: res.data.username || res.data.name || igUserId, ...res.data };
   } catch (err) {
-    const details = logGraphError('Graph token validation', err, {
-      igUserId,
-      endpoint,
+    const details = logGraphError('Instagram token validation', err, {
+      igUserId, endpoint,
       requestUrl: buildGraphUrl(endpoint, params),
       tokenFingerprint: tokenFingerprint(accessToken),
     });
@@ -138,7 +141,8 @@ async function verifyPublishingAccess(igUserId, accessToken) {
   const missingScopes = REQUIRED_SCOPES.filter(scope => !token.scopes.includes(scope));
 
   let account;
-  const endpoint = `${FB_GRAPH}/${igUserId}`;
+  const base = getGraphBase(accessToken);
+  const endpoint = `${base}/${igUserId}`;
   const params = { fields: 'id,username,account_type', access_token: accessToken };
   try {
     const res = await axios.get(endpoint, {
@@ -192,7 +196,7 @@ async function verifyPublishingAccess(igUserId, accessToken) {
 }
 
 async function createReelContainer(igUserId, accessToken, videoUrl, caption, context = {}) {
-  const endpoint = `${FB_GRAPH}/${igUserId}/media`;
+  const endpoint = `${getGraphBase(accessToken)}/${igUserId}/media`;
   const params = {
     media_type: 'REELS',
     video_url: videoUrl,
@@ -239,7 +243,7 @@ async function waitForContainer(containerId, accessToken, maxMs = 180000, contex
     await new Promise(r => setTimeout(r, step));
 
     let res;
-    const endpoint = `${FB_GRAPH}/${containerId}`;
+    const endpoint = `${getGraphBase(accessToken)}/${containerId}`;
     const params = { fields: 'status_code,status', access_token: accessToken };
     try {
       res = await axios.get(endpoint, {
@@ -277,7 +281,7 @@ async function waitForContainer(containerId, accessToken, maxMs = 180000, contex
 }
 
 async function publishContainer(igUserId, accessToken, containerId, context = {}) {
-  const endpoint = `${FB_GRAPH}/${igUserId}/media_publish`;
+  const endpoint = `${getGraphBase(accessToken)}/${igUserId}/media_publish`;
   const params = { creation_id: containerId, access_token: accessToken };
   logger.info(`Publishing container: ${containerId}`, {
     postId: context.postId || null,
@@ -318,8 +322,8 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
       ...context,
       igUserId,
       videoUrl,
-      endpoint: `${FB_GRAPH}/${igUserId}/media`,
-      requestUrl: buildGraphUrl(`${FB_GRAPH}/${igUserId}/media`, {
+      endpoint: `${getGraphBase(accessToken)}/${igUserId}/media`,
+      requestUrl: buildGraphUrl(`${getGraphBase(accessToken)}/${igUserId}/media`, {
         media_type: 'REELS',
         video_url: videoUrl,
         caption: caption || '',
@@ -339,8 +343,8 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
       ...context,
       igUserId,
       containerId,
-      endpoint: `${FB_GRAPH}/${igUserId}/media_publish`,
-      requestUrl: buildGraphUrl(`${FB_GRAPH}/${igUserId}/media_publish`, {
+      endpoint: `${getGraphBase(accessToken)}/${igUserId}/media_publish`,
+      requestUrl: buildGraphUrl(`${getGraphBase(accessToken)}/${igUserId}/media_publish`, {
         creation_id: containerId,
         access_token: accessToken
       }),
