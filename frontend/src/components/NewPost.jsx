@@ -54,10 +54,10 @@ function newBox() {
 }
 
 function getBackgroundFill(bg) {
-  if (bg === 'black') return 'linear-gradient(135deg, #000000 0%, #1c082f 100%)';
-  if (bg === 'white') return 'linear-gradient(135deg, #ffffff 0%, #e9deff 100%)';
-  if (bg === 'dark')  return 'linear-gradient(135deg, rgba(0,0,0,0.78) 0%, rgba(18,8,30,0.56) 100%)';
-  if (bg === 'light') return 'linear-gradient(135deg, rgba(255,255,255,0.84) 0%, rgba(233,222,255,0.52) 100%)';
+  if (bg === 'black') return '#000000';           // solid — for covering video text
+  if (bg === 'white') return '#ffffff';           // solid — for covering video text
+  if (bg === 'dark')  return 'rgba(0,0,0,0.78)'; // semi-transparent overlay
+  if (bg === 'light') return 'rgba(255,255,255,0.82)'; // semi-transparent overlay
   return 'transparent';
 }
 
@@ -272,12 +272,9 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       fontWeight: 'bold',
       fontFamily: 'sans-serif',
       cursor: 'grab',
-      whiteSpace: 'pre-wrap',
-      wordBreak: 'break-word',
-      overflowWrap: 'anywhere',
-      width: (box.widthPct || 58) + '%',
-      maxWidth: '92%',
-      minWidth: 72,
+      // pre = spaces expand box width (like CapCut); use ↵ button for new lines
+      whiteSpace: 'pre',
+      maxWidth: '94%',
       lineHeight: 1.18,
       letterSpacing: '-0.01em',
       pointerEvents: 'all',
@@ -415,15 +412,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#666', minWidth: 32 }}>Width</span>
-                  <button onClick={() => updateBox(sel.id, 'widthPct', Math.max(18, (sel.widthPct || 58) - 4))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>-</button>
-                  <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(sel.widthPct || 58)}%</span>
-                  <button onClick={() => updateBox(sel.id, 'widthPct', Math.min(92, (sel.widthPct || 58) + 4))} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18 }}>+</button>
-                  <span style={{ fontSize: 11, color: '#555', marginLeft: 8 }}>better for 2-3 lines</span>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'stretch' }}>
+<div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'stretch' }}>
                   <textarea
                     ref={taRef}
                     autoFocus
