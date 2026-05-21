@@ -60,7 +60,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   }
 
   function addBox() {
-    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 44, bg: 'none', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 30, coverHeightPct: 10 };
+    const box = { id: Date.now(), text: '', xPct: 50, yPct: 50, color: 'white', colorHex: '#ffffff', size: 'large', fontSize: 28, bg: 'none', align: 'center', startTime: 0, endTime: 0, coverWidthPct: 30, coverHeightPct: 10 };
     onChange(prev => [...prev, box]);
     setSelected(box.id);
   }
@@ -103,7 +103,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     const t = e.touches;
     if (t && t.length >= 2) {
       const box = boxesRef.current.find(b => b.id === id);
-      setPinching({ id, startDist: touchDist(t), startSize: box?.fontSize || 44, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
+      setPinching({ id, startDist: touchDist(t), startSize: box?.fontSize || 28, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
       setDragging(null);
     } else {
       setDragging({ id });
@@ -134,7 +134,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
         } else if (dragging) {
           // second finger landed — switch to pinch
           const box = boxesRef.current.find(b => b.id === dragging.id);
-          setPinching({ id: dragging.id, startDist: dist, startSize: box?.fontSize || 44, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
+          setPinching({ id: dragging.id, startDist: dist, startSize: box?.fontSize || 28, startW: box?.coverWidthPct || 65, startH: box?.coverHeightPct || 14 });
           setDragging(null);
         }
       } else if (dragging) {
@@ -194,12 +194,13 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
         cursor: 'move', borderRadius: 5, pointerEvents: 'all', outline,
       };
     }
-    const sizePx = box.fontSize || 44;
+    const sizePx = box.fontSize || 28;
     const base = {
       position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
       transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
-      fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'pre',
-      pointerEvents: 'all', borderRadius: 4, padding: '3px 10px',
+      fontFamily: 'sans-serif', cursor: 'move', whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word', maxWidth: '90%',
+      pointerEvents: 'all', borderRadius: 4, padding: '4px 12px',
       textAlign: box.align || 'center', outline,
     };
     if (box.bg === 'black') return { ...base, background: 'linear-gradient(135deg, #000000 0%, #1a0a2e 100%)', color: '#fff', textShadow: 'none' };
@@ -310,10 +311,10 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
                     </button>
                   ))}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
-                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.max(8, (sel.fontSize || 44) - 4))}
+                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.max(8, (sel.fontSize || 28) - 4))}
                       style={{ width: 30, height: 30, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                    <span style={{ fontSize: 12, color: '#888', minWidth: 30, textAlign: 'center' }}>{sel.fontSize || 44}</span>
-                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.min(200, (sel.fontSize || 44) + 4))}
+                    <span style={{ fontSize: 12, color: '#888', minWidth: 30, textAlign: 'center' }}>{sel.fontSize || 28}</span>
+                    <button onClick={() => updateBox(sel.id, 'fontSize', Math.min(200, (sel.fontSize || 28) + 4))}
                       style={{ width: 30, height: 30, borderRadius: 6, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
                   </div>
                 </div>
@@ -647,7 +648,7 @@ export default function NewPost() {
                       }} />
                     );
                   }
-                  const sizePx = (box.fontSize || 26) * 0.65;
+                  const sizePx = (box.fontSize || 28) * 0.65;
                   return (
                     <div key={box.id} style={{
                       position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
