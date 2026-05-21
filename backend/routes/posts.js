@@ -94,10 +94,19 @@ router.post('/:id/publish', async (req, res, next) => {
       } catch (err) {
         const msg = err.message || 'Instagram publishing capability check failed.';
         const lower = msg.toLowerCase();
-        if (lower.includes('invalid') || lower.includes('expired') || lower.includes('access token')) {
+        // Meta system-side errors — skip pre-validation and attempt publishing anyway
+        if (lower.includes('system error') || lower.includes('application info') || lower.includes('unable to debug')) {
+          logger.warn(`Meta pre-check returned system error for "${post.acct_name}", proceeding with publish attempt`, {
+            accountId: post.account_id || post.account_ref || 'no-account',
+            igUserId: post.ig_user_id, error: msg,
+          });
+          post._publishCapability = null;
+          // fall through — let the actual publish call determine if the token is valid
+        } else if (lower.includes('invalid') || lower.includes('expired') || lower.includes('access token')) {
           return res.status(400).json({ error: `Token issue for "${post.acct_name}": ${msg} Reconnect this account and try again.` });
+        } else {
+          return res.status(400).json({ error: `Cannot publish for "${post.acct_name}": ${msg}` });
         }
-        return res.status(400).json({ error: `Cannot publish for "${post.acct_name}": ${msg}` });
       }
     } else if (!post.fallback_session_path) {
       return res.status(400).json({ error: `Account "${post.acct_name}" has no Meta publishing token and no fallback Instagram session. Create a fallback session first.` });
