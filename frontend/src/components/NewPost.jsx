@@ -82,6 +82,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
   const taRef = useRef();
   const boxesRef = useRef(textBoxes);
   const gestureRef = useRef(null);
+  const ptrsRef = useRef(new Map()); // pointerId → {x, y, boxId}
   const [selected, setSelected] = useState(null);
   const [playing, setPlaying] = useState(false);
 
@@ -144,7 +145,8 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     });
   }
 
-  function beginGesture(e, id, mode, handle = null) {
+  // Resize handle drag (corner/edge handles)
+  function beginGesture(e, id, handle) {
     e.preventDefault();
     e.stopPropagation();
     const rect = containerRef.current?.getBoundingClientRect();
@@ -152,84 +154,125 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
     if (!rect || !box) return;
     const { width, height } = measureBoxPx(box, rect);
     setSelected(id);
-    gestureRef.current = {
-      id,
-      mode,
-      handle,
-      startX: e.clientX,
-      startY: e.clientY,
-      rect,
-      box,
-      boxPx: { width, height },
-    };
+    ptrsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, boxId: id });
+    gestureRef.current = { mode: 'resize', id, handle, startX: e.clientX, startY: e.clientY, rect, box, boxPx: { width, height } };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }
 
+  // Box body drag + pinch-to-resize (two fingers)
   function handlePointerDown(e, id) {
-    beginGesture(e, id, 'drag');
+    e.preventDefault();
+    e.stopPropagation();
+    setSelected(id);
+    ptrsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, boxId: id });
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+
+    const boxPtrs = [...ptrsRef.current.values()].filter(p => p.boxId === id);
+    const box = boxesRef.current.find(b => b.id === id);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!box || !rect) return;
+
+    if (boxPtrs.length >= 2) {
+      // Two fingers on same box → pinch
+      const dist = Math.hypot(boxPtrs[0].x - boxPtrs[1].x, boxPtrs[0].y - boxPtrs[1].y);
+      gestureRef.current = {
+        mode: 'pinch', id,
+        startDist: dist,
+        startFontSize: box.fontSize || 28,
+        startCoverW: box.coverWidthPct || 65,
+        startCoverH: box.coverHeightPct || 14,
+      };
+    } else {
+      // One finger → drag
+      const { width, height } = measureBoxPx(box, rect);
+      gestureRef.current = { mode: 'drag', id, startX: e.clientX, startY: e.clientY, rect, box, boxPx: { width, height } };
+    }
   }
 
   useEffect(() => {
     function onPointerMove(e) {
+      // Update tracked pointer position
+      if (ptrsRef.current.has(e.pointerId)) {
+        ptrsRef.current.get(e.pointerId).x = e.clientX;
+        ptrsRef.current.get(e.pointerId).y = e.clientY;
+      }
       const gesture = gestureRef.current;
       if (!gesture) return;
       e.preventDefault();
+
+      // ── Pinch to resize ──────────────────────────────────────
+      if (gesture.mode === 'pinch') {
+        const pts = [...ptrsRef.current.values()].filter(p => p.boxId === gesture.id);
+        if (pts.length < 2) return;
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const scale = dist / gesture.startDist;
+        const box = boxesRef.current.find(b => b.id === gesture.id);
+        const isCover = box && !box.text.trim() && box.bg !== 'none';
+        if (isCover) {
+          onChange(prev => prev.map(item => item.id === gesture.id ? {
+            ...item,
+            coverWidthPct:  Math.max(18, Math.min(95, gesture.startCoverW * scale)),
+            coverHeightPct: Math.max(6,  Math.min(70, gesture.startCoverH * scale)),
+          } : item));
+        } else {
+          onChange(prev => prev.map(item => item.id === gesture.id ? {
+            ...item, fontSize: Math.max(14, Math.min(180, Math.round(gesture.startFontSize * scale))),
+          } : item));
+        }
+        return;
+      }
+
       const dx = e.clientX - gesture.startX;
       const dy = e.clientY - gesture.startY;
-      const { box, rect, boxPx, mode, handle, id } = gesture;
+      const { box, rect, boxPx, handle, id } = gesture;
 
-      if (mode === 'drag') {
+      // ── Drag ────────────────────────────────────────────────
+      if (gesture.mode === 'drag') {
         const nextXPx = (box.xPct / 100) * rect.width + dx;
         const nextYPx = (box.yPct / 100) * rect.height + dy;
-        const halfW = boxPx.width / 2;
-        const halfH = boxPx.height / 2;
-        const clampedX = Math.max(halfW, Math.min(rect.width - halfW, nextXPx));
-        const clampedY = Math.max(halfH, Math.min(rect.height - halfH, nextYPx));
+        const clampedX = Math.max(boxPx.width / 2, Math.min(rect.width  - boxPx.width  / 2, nextXPx));
+        const clampedY = Math.max(boxPx.height / 2, Math.min(rect.height - boxPx.height / 2, nextYPx));
         onChange(prev => prev.map(item => item.id === id ? {
           ...item,
-          xPct: (clampedX / rect.width) * 100,
+          xPct: (clampedX / rect.width)  * 100,
           yPct: (clampedY / rect.height) * 100,
         } : item));
         return;
       }
 
+      // ── Handle resize ────────────────────────────────────────
       const isCover = !box.text.trim() && box.bg !== 'none';
-      const widthDirection = handle?.includes('w') ? -1 : 1;
-      const heightDirection = handle?.includes('n') ? -1 : 1;
-
+      const wDir = handle?.includes('w') ? -1 : 1;
+      const hDir = handle?.includes('n') ? -1 : 1;
       if (isCover) {
-        const nextWidth = Math.max(18, Math.min(95, ((boxPx.width + (dx * widthDirection)) / rect.width) * 100));
-        const nextHeight = Math.max(6, Math.min(70, ((boxPx.height + (dy * heightDirection)) / rect.height) * 100));
+        const nextW = Math.max(18, Math.min(95, ((boxPx.width  + dx * wDir) / rect.width)  * 100));
+        const nextH = Math.max(6,  Math.min(70, ((boxPx.height + dy * hDir) / rect.height) * 100));
         onChange(prev => prev.map(item => item.id === id ? {
           ...item,
-          coverWidthPct: nextWidth,
-          coverHeightPct: handle?.length === 1 ? item.coverHeightPct : nextHeight,
+          coverWidthPct:  nextW,
+          coverHeightPct: handle?.length === 1 ? item.coverHeightPct : nextH,
         } : item));
-        return;
+      } else {
+        const sizeDelta = handle === 'e' || handle === 'w'
+          ? Math.abs(dx) * wDir * 0.3
+          : Math.max(Math.abs(dx) * wDir, Math.abs(dy) * hDir) * 0.2;
+        onChange(prev => prev.map(item => item.id === id ? {
+          ...item, fontSize: Math.max(14, Math.min(180, Math.round((box.fontSize || 28) + sizeDelta))),
+        } : item));
       }
-
-      const nextWidthPct = Math.max(18, Math.min(92, ((boxPx.width + (dx * widthDirection)) / rect.width) * 100));
-      const sizeDelta = handle === 'e' || handle === 'w'
-        ? (nextWidthPct - (box.widthPct || 58)) * 0.35
-        : Math.max(dx * widthDirection, dy * heightDirection) * 0.14;
-      const nextFontSize = Math.max(14, Math.min(180, Math.round((box.fontSize || 28) + sizeDelta)));
-      onChange(prev => prev.map(item => item.id === id ? {
-        ...item,
-        widthPct: nextWidthPct,
-        fontSize: nextFontSize,
-      } : item));
     }
 
-    function endGesture() {
-      gestureRef.current = null;
+    function endGesture(e) {
+      ptrsRef.current.delete(e.pointerId);
+      if (ptrsRef.current.size === 0) gestureRef.current = null;
     }
 
     window.addEventListener('pointermove', onPointerMove, { passive: false });
-    window.addEventListener('pointerup', endGesture);
+    window.addEventListener('pointerup',   endGesture);
     window.addEventListener('pointercancel', endGesture);
     return () => {
       window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', endGesture);
+      window.removeEventListener('pointerup',   endGesture);
       window.removeEventListener('pointercancel', endGesture);
     };
   }, [onChange]);
@@ -307,7 +350,7 @@ function TextEditorModal({ videoSrc, textBoxes, onChange, onClose }) {
       <button
         key={handle.key}
         type="button"
-        onPointerDown={e => beginGesture(e, box.id, 'resize', handle.key)}
+        onPointerDown={e => beginGesture(e, box.id, handle.key)}
         style={{
           position: 'absolute',
           width: 32,
