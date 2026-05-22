@@ -12,6 +12,7 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+# cache-bust: 2026-05-22-v2
 RUN npm run build
 
 # Set up backend
