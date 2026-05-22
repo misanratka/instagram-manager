@@ -1,428 +1,314 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-function bgFill(bg) {
-  if (bg === 'black') return '#000000';
-  if (bg === 'white') return '#ffffff';
-  if (bg === 'dark')  return 'rgba(0,0,0,0.78)';
-  if (bg === 'light') return 'rgba(255,255,255,0.82)';
-  return 'transparent';
-}
-
-function textColorFor(box) {
-  if (box.bg === 'black' || box.bg === 'dark')  return '#ffffff';
-  if (box.bg === 'white' || box.bg === 'light') return '#111111';
-  return box.colorHex || '#ffffff';
-}
-
-function isCover(box) {
-  return !box.text.trim() && box.bg !== 'none';
-}
-
-function boxStyle(box, isActive) {
-  const cover = isCover(box);
-  const base = {
-    position: 'absolute',
-    left: box.xPct + '%',
-    top:  box.yPct + '%',
-    transform: 'translate(-50%,-50%)',
-    touchAction: 'none',
-    userSelect: 'none',
-    cursor: 'grab',
-    borderRadius: 10,
-    outline: isActive ? '3px solid #ff0000' : 'none', /* DEBUG red outline */
-    pointerEvents: 'all',
-  };
-  if (cover) {
-    return {
-      ...base,
-      width:  (box.coverWidthPct  || 65) + '%',
-      height: (box.coverHeightPct || 14) + '%',
-      minWidth: 40, minHeight: 18,
-      background: bgFill(box.bg),
-      boxShadow: isActive
-        ? '0 0 0 1px rgba(255,255,255,0.2), 0 4px 20px rgba(0,0,0,0.5)'
-        : '0 2px 14px rgba(0,0,0,0.5)',
-    };
-  }
-  return {
-    ...base,
-    fontSize: (box.fontSize || 32) + 'px',
-    fontWeight: 800,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    lineHeight: 1.2,
-    letterSpacing: '-0.01em',
-    textAlign: box.align || 'center',
-    width: (box.widthPct || 80) + '%',
-    maxWidth: '92%',
-    padding: '6px 14px',
-    background: box.bg !== 'none' ? bgFill(box.bg) : 'transparent',
-    color: textColorFor(box),
-    textShadow: box.bg === 'none'
-      ? '0 2px 8px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1), 1px 1px 0 rgba(0,0,0,0.8)'
-      : 'none',
-    boxShadow: isActive ? '0 0 0 1px rgba(255,255,255,0.15)' : 'none',
-  };
-}
-
-const CORNERS = [
-  { key: 'nw', style: { top: -14, left: -14 } },
-  { key: 'ne', style: { top: -14, right: -14 } },
-  { key: 'se', style: { bottom: -14, right: -14 } },
-  { key: 'sw', style: { bottom: -14, left: -14 } },
-];
-
-function Handles({ boxId, onPointerDown }) {
-  return (
-    <>
-      {CORNERS.map(({ key, style }) => (
-        <div
-          key={key}
-          onPointerDown={e => onPointerDown(e, boxId, key)}
-          style={{
-            position: 'absolute',
-            width: 28, height: 28,
-            borderRadius: '50%',
-            background: '#7b6fff',
-            border: '2.5px solid #fff',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
-            touchAction: 'none',
-            cursor: 'nwse-resize',
-            zIndex: 20,
-            ...style,
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
-const COLORS  = ['#ffffff', '#ffff00', '#ff8800', '#ff3333', '#00ffff', '#111111'];
-const BG_OPTS = ['none', 'dark', 'black', 'light', 'white'];
-
-function TextPanel({ box, onUpdate, onRemove }) {
-  const align = box.align || 'center';
-  const size  = box.fontSize || 32;
-  return (
-    <>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 9, alignItems: 'center' }}>
-        {['left', 'center', 'right'].map(a => (
-          <button key={a} onClick={() => onUpdate({ align: a })} style={{
-            padding: '6px 11px', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700,
-            background: align === a ? '#1e1e40' : '#141420',
-            border: align === a ? '2px solid #7b6fff' : '1.5px solid #2a2a3a',
-            color: align === a ? '#fff' : '#666',
-          }}>
-            {a === 'left' ? '≡L' : a === 'center' ? '≡C' : '≡R'}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <button onClick={() => onUpdate({ fontSize: Math.max(12, size - 4) })} style={S.iconBtn}>−</button>
-        <span style={{ fontSize: 12, color: '#999', minWidth: 26, textAlign: 'center' }}>{size}</span>
-        <button onClick={() => onUpdate({ fontSize: Math.min(200, size + 4) })} style={S.iconBtn}>+</button>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 9 }}>
-        <textarea
-          id={`text-box-${box.id}`}
-          name={`text_box_${box.id}`}
-          autoFocus
-          value={box.text}
-          onChange={e => onUpdate({ text: e.target.value })}
-          placeholder="Type text…  (Enter = new line)"
-          rows={3}
-          style={{
-            flex: 1, minHeight: 72, padding: '10px 12px',
-            background: '#141420', border: '1.5px solid #3a3a5a',
-            borderRadius: 10, color: '#fff', fontSize: 15,
-            outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
-          }}
-        />
-        <button onClick={onRemove} style={{
-          padding: '10px', background: '#1a0808', border: '1px solid #4a1a1a',
-          borderRadius: 10, color: '#ff6060', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-        }}>Del</button>
-      </div>
-
-      <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: '#555', marginRight: 2 }}>BG</span>
-        {BG_OPTS.map(bg => (
-          <button key={bg} onClick={() => onUpdate({ bg })} style={{
-            padding: '5px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 12,
-            background: box.bg === bg ? '#1e1e40' : '#141420',
-            border: box.bg === bg ? '2px solid #7b6fff' : '1.5px solid #2a2a3a',
-            color: box.bg === bg ? '#fff' : '#777',
-          }}>{bg}</button>
-        ))}
-        {box.bg === 'none' && (
-          <>
-            <div style={{ width: 1, height: 22, background: '#2a2a3a', margin: '0 3px' }} />
-            {COLORS.map(hex => (
-              <button key={hex} onClick={() => onUpdate({ colorHex: hex })} style={{
-                width: 26, height: 26, borderRadius: '50%', background: hex,
-                cursor: 'pointer', flexShrink: 0,
-                border: box.colorHex === hex ? '2.5px solid #fff' : '1.5px solid #444',
-              }} />
-            ))}
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-function CoverPanel({ box, onUpdate, onRemove }) {
-  return (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
-        <span style={{ fontSize: 12, color: '#888', fontWeight: 600 }}>Cover Block</span>
-        <span style={{ fontSize: 11, color: '#444' }}>drag or use corner handles</span>
-        <button onClick={onRemove} style={{
-          marginLeft: 'auto', padding: '6px 12px', background: '#1a0808',
-          border: '1px solid #4a1a1a', borderRadius: 7, color: '#ff6060', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-        }}>Remove</button>
-      </div>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 9 }}>
-        <span style={{ fontSize: 11, color: '#555' }}>Style</span>
-        {BG_OPTS.filter(b => b !== 'none').map(bg => (
-          <button key={bg} onClick={() => onUpdate({ bg })} style={{
-            padding: '5px 11px', borderRadius: 7, cursor: 'pointer', fontSize: 12,
-            background: box.bg === bg ? '#1e1e40' : '#141420',
-            border: box.bg === bg ? '2px solid #7b6fff' : '1.5px solid #2a2a3a',
-            color: box.bg === bg ? '#fff' : '#777',
-          }}>{bg}</button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 16 }}>
-        {[
-          { label: 'W', key: 'coverWidthPct',  def: 65, step: 5, min: 18, max: 95 },
-          { label: 'H', key: 'coverHeightPct', def: 14, step: 2, min: 6,  max: 70 },
-        ].map(({ label, key, def, step, min, max }) => (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: '#555' }}>{label}</span>
-            <button onClick={() => onUpdate({ [key]: Math.max(min, (box[key] || def) - step) })} style={S.iconBtn}>−</button>
-            <span style={{ fontSize: 12, color: '#ccc', minWidth: 34, textAlign: 'center' }}>{Math.round(box[key] || def)}%</span>
-            <button onClick={() => onUpdate({ [key]: Math.min(max, (box[key] || def) + step) })} style={S.iconBtn}>+</button>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
+const FONTS = ['Arial', 'Georgia', 'Courier New', 'Verdana', 'Times New Roman', 'Comic Sans MS', 'Impact'];
+const CANVAS_W = 600;
+const CANVAS_H = 400;
+const GRID = 50;
 
 export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClose }) {
-  const containerRef = useRef(null);
-  const videoRef     = useRef(null);
-  const boxesRef     = useRef(textBoxes);
-  const gestureRef   = useRef(null);
-  const ptrsRef      = useRef(new Map());
-  const [selectedId, setSelectedId] = useState(null);
-  const [playing, setPlaying]       = useState(false);
+  const init = textBoxes[0];
+  const [text, setText]           = useState(init?.text || 'Add Your Text Here');
+  const [fontSize, setFontSize]   = useState(init?.fontSize || 36);
+  const [posX, setPosX]           = useState(
+    init?.posX ?? (init?.xPct != null ? Math.round((init.xPct / 100) * CANVAS_W) : 127)
+  );
+  const [posY, setPosY]           = useState(
+    init?.posY ?? (init?.yPct != null ? Math.round((init.yPct / 100) * CANVAS_H) : 150)
+  );
+  const [font, setFont]           = useState(init?.font || 'Arial');
+  const [textColor, setTextColor] = useState(init?.textColor || init?.colorHex || '#ffffff');
+  const [bgColor, setBgColor]     = useState('#000000');
+  const [showExport, setShowExport]   = useState(false);
+  const [copied, setCopied]           = useState(false);
 
-  // DEBUG: confirm new component is mounted
-  useEffect(() => { console.log('[TextOverlayEditor] MOUNTED — new component v2'); return () => console.log('[TextOverlayEditor] UNMOUNTED'); }, []);
-  useEffect(() => { boxesRef.current = textBoxes; }, [textBoxes]);
-
-  const sel = textBoxes.find(b => b.id === selectedId) ?? null;
-
-  function togglePlay() {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); }
-    else          { v.pause(); setPlaying(false); }
-  }
-
-  function createBox(overrides = {}) {
-    const id = Date.now();
-    const box = {
-      id, text: '', xPct: 50, yPct: 45,
-      colorHex: '#ffffff', color: 'white',
-      fontSize: 32, size: 'large', bg: 'none',
-      align: 'center', widthPct: 80,
-      coverWidthPct: 65, coverHeightPct: 14,
-      startTime: 0, endTime: 0,
-      ...overrides,
-    };
-    onChange(prev => [...prev, box]);
-    setSelectedId(id);
-  }
-
-  function removeBox(id) {
-    onChange(prev => prev.filter(b => b.id !== id));
-    setSelectedId(null);
-  }
-
-  function updateBox(id, patch) {
-    onChange(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b));
-  }
-
-  function onBoxPointerDown(e, id) {
-    e.preventDefault();
-    e.stopPropagation();
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
-    setSelectedId(id);
-    ptrsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, boxId: id });
-
-    const peers = [...ptrsRef.current.values()].filter(p => p.boxId === id);
-    if (peers.length >= 2) {
-      const dist = Math.hypot(peers[0].x - peers[1].x, peers[0].y - peers[1].y);
-      const box  = boxesRef.current.find(b => b.id === id);
-      gestureRef.current = { mode: 'pinch', id, startDist: dist, startFontSize: box?.fontSize || 32 };
-    } else {
-      const rect = containerRef.current?.getBoundingClientRect();
-      const box  = boxesRef.current.find(b => b.id === id);
-      if (!rect || !box) return;
-      gestureRef.current = {
-        mode: 'drag', id,
-        offsetX: e.clientX - rect.left - (box.xPct / 100) * rect.width,
-        offsetY: e.clientY - rect.top  - (box.yPct / 100) * rect.height,
-      };
-    }
-  }
-
-  function onHandlePointerDown(e, id, corner) {
-    e.preventDefault();
-    e.stopPropagation();
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
-    ptrsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, boxId: id });
-    const box = boxesRef.current.find(b => b.id === id);
-    if (!box) return;
-    gestureRef.current = {
-      mode: 'corner', id, corner,
-      startX: e.clientX, startY: e.clientY,
-      isBoxCover: isCover(box),
-      startFontSize: box.fontSize || 32,
-      startCW: box.coverWidthPct  || 65,
-      startCH: box.coverHeightPct || 14,
-    };
-  }
+  const canvasRef  = useRef(null);
+  const videoRef   = useRef(null);
+  const gestureRef = useRef(null);
+  const ptrsRef    = useRef(new Map());
+  const stateRef   = useRef({ text, fontSize, posX, posY, font, textColor });
 
   useEffect(() => {
-    function onMove(e) {
-      const ptr = ptrsRef.current.get(e.pointerId);
-      if (ptr) { ptr.x = e.clientX; ptr.y = e.clientY; }
+    stateRef.current = { text, fontSize, posX, posY, font, textColor };
+  }, [text, fontSize, posX, posY, font, textColor]);
 
-      const g = gestureRef.current;
-      if (!g) return;
-
-      if (g.mode === 'drag') {
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        // DEBUG: remove before ship
-        console.log('[TextOverlayEditor] DRAG id=%s x=%d y=%d', g.id, Math.round(e.clientX), Math.round(e.clientY));
-        onChange(prev => prev.map(b => b.id === g.id ? {
-          ...b,
-          xPct: Math.max(2, Math.min(98, ((e.clientX - rect.left - g.offsetX) / rect.width)  * 100)),
-          yPct: Math.max(2, Math.min(98, ((e.clientY - rect.top  - g.offsetY) / rect.height) * 100)),
-        } : b));
-
-      } else if (g.mode === 'pinch') {
-        const pts = [...ptrsRef.current.values()].filter(p => p.boxId === g.id);
-        if (pts.length < 2) return;
-        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        onChange(prev => prev.map(b => b.id === g.id ? {
-          ...b, fontSize: Math.max(12, Math.min(200, Math.round(g.startFontSize * dist / g.startDist))),
-        } : b));
-
-      } else if (g.mode === 'corner') {
-        const dx = e.clientX - g.startX;
-        const dy = e.clientY - g.startY;
-        if (g.isBoxCover) {
-          const rect = containerRef.current?.getBoundingClientRect();
-          if (!rect) return;
-          const dw = (g.corner === 'se' || g.corner === 'ne') ?  dx : -dx;
-          const dh = (g.corner === 'se' || g.corner === 'sw') ?  dy : -dy;
-          onChange(prev => prev.map(b => b.id === g.id ? {
-            ...b,
-            coverWidthPct:  Math.max(18, Math.min(95, g.startCW + (dw / rect.width)  * 100)),
-            coverHeightPct: Math.max(6,  Math.min(70, g.startCH + (dh / rect.height) * 100)),
-          } : b));
-        } else {
-          const outward = g.corner === 'se' ?  (dx + dy) / 2
-                        : g.corner === 'nw' ? -(dx + dy) / 2
-                        : g.corner === 'ne' ?  (dx - dy) / 2
-                        :                     -(dx - dy) / 2;
-          // DEBUG: remove before ship
-          console.log('[TextOverlayEditor] RESIZE corner=%s outward=%d', g.corner, Math.round(outward));
-          onChange(prev => prev.map(b => b.id === g.id ? {
-            ...b, fontSize: Math.max(12, Math.min(200, Math.round(g.startFontSize + outward * 0.25))),
-          } : b));
-        }
-      }
-    }
-
-    function onUp(e) {
-      ptrsRef.current.delete(e.pointerId);
-      if (ptrsRef.current.size === 0) gestureRef.current = null;
-    }
-
-    window.addEventListener('pointermove', onMove, { passive: true });
-    window.addEventListener('pointerup',     onUp);
-    window.addEventListener('pointercancel', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup',   onUp);
-      window.removeEventListener('pointercancel', onUp);
+  // Sync to parent
+  useEffect(() => {
+    const box = {
+      id: init?.id || 1,
+      text, fontSize, posX, posY, font, textColor,
+      colorHex: textColor,
+      xPct: (posX / CANVAS_W) * 100,
+      yPct: (posY / CANVAS_H) * 100,
+      bg: 'none', align: 'center', widthPct: 80,
     };
-  }, [onChange]);
+    onChange(text.trim() ? [box] : []);
+  }, [text, fontSize, posX, posY, font, textColor]); // eslint-disable-line
+
+  // Canvas draw
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const { text, fontSize, posX, posY, font, textColor } = stateRef.current;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    const vid = videoRef.current;
+    if (vid && vid.readyState >= 2) {
+      try { ctx.drawImage(vid, 0, 0, CANVAS_W, CANVAS_H); } catch (_) {}
+    }
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 0.5;
+    for (let x = GRID; x < CANVAS_W; x += GRID) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_H); ctx.stroke();
+    }
+    for (let y = GRID; y < CANVAS_H; y += GRID) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_W, y); ctx.stroke();
+    }
+
+    if (!text) return;
+
+    ctx.font = `bold ${fontSize}px ${font}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const tw  = ctx.measureText(text).width;
+    const th  = fontSize * 1.2;
+    const pad = 8;
+
+    // Gold bounding box
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(posX - tw / 2 - pad, posY - th / 2 - pad / 2, tw + pad * 2, th + pad);
+
+    ctx.fillStyle = textColor;
+    ctx.fillText(text, posX, posY);
+  }, []);
+
+  useEffect(() => {
+    let raf;
+    const loop = () => { draw(); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [draw]);
+
+  function hitTest(cx, cy) {
+    const canvas = canvasRef.current;
+    if (!canvas || !stateRef.current.text) return false;
+    const ctx = canvas.getContext('2d');
+    const { text, fontSize, posX, posY, font } = stateRef.current;
+    ctx.font = `bold ${fontSize}px ${font}`;
+    const tw  = ctx.measureText(text).width;
+    const th  = fontSize * 1.2;
+    const pad = 20;
+    return cx >= posX - tw / 2 - pad && cx <= posX + tw / 2 + pad &&
+           cy >= posY - th / 2 - pad && cy <= posY + th / 2 + pad;
+  }
+
+  function toCanvas(e) {
+    const rect = canvasRef.current.getBoundingClientRect();
+    return {
+      cx: (e.clientX - rect.left) * (CANVAS_W / rect.width),
+      cy: (e.clientY - rect.top)  * (CANVAS_H / rect.height),
+    };
+  }
+
+  function onPointerDown(e) {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+    ptrsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const { cx, cy } = toCanvas(e);
+
+    if (ptrsRef.current.size >= 2) {
+      const pts  = [...ptrsRef.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      gestureRef.current = { mode: 'pinch', startDist: dist, startFontSize: stateRef.current.fontSize };
+    } else if (hitTest(cx, cy)) {
+      gestureRef.current = {
+        mode: 'drag',
+        startCX: e.clientX, startCY: e.clientY,
+        startPX: stateRef.current.posX, startPY: stateRef.current.posY,
+      };
+    } else {
+      gestureRef.current = null;
+    }
+  }
+
+  function onPointerMove(e) {
+    const ptr = ptrsRef.current.get(e.pointerId);
+    if (ptr) { ptr.x = e.clientX; ptr.y = e.clientY; }
+    const g = gestureRef.current;
+    if (!g) return;
+
+    if (g.mode === 'drag') {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const sx = CANVAS_W / rect.width;
+      const sy = CANVAS_H / rect.height;
+      setPosX(v => Math.round(Math.max(10, Math.min(CANVAS_W - 10, g.startPX + (e.clientX - g.startCX) * sx))));
+      setPosY(v => Math.round(Math.max(10, Math.min(CANVAS_H - 10, g.startPY + (e.clientY - g.startCY) * sy))));
+    } else if (g.mode === 'pinch') {
+      const pts = [...ptrsRef.current.values()];
+      if (pts.length < 2) return;
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      setFontSize(Math.max(16, Math.min(120, Math.round(g.startFontSize * dist / g.startDist))));
+    }
+  }
+
+  function onPointerUp(e) {
+    ptrsRef.current.delete(e.pointerId);
+    if (ptrsRef.current.size === 0) gestureRef.current = null;
+  }
+
+  function exportJSON() {
+    return JSON.stringify({
+      text, fontSize,
+      position: { x: posX, y: posY },
+      colors: { text: textColor, background: bgColor },
+      font,
+      timestamp: new Date().toISOString(),
+    }, null, 2);
+  }
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(exportJSON());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#111', borderBottom: '1px solid #222', flexShrink: 0 }}>
-        <button onClick={onClose} style={S.btnPrimary}>Done</button>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {videoSrc && <button onClick={togglePlay} style={S.btnGhost}>{playing ? '⏸' : '▶'}</button>}
-          <button onClick={() => createBox({ bg: 'dark', fontSize: 44, coverWidthPct: 70, coverHeightPct: 15 })} style={S.btnGhost}>Cover</button>
-          <button onClick={() => createBox()} style={S.btnSecondary}>+ Text</button>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#fff', display: 'flex', flexDirection: 'column', overflowY: 'auto', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
+
+      {/* Header */}
+      <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ fontSize: 30, fontWeight: 700, color: '#c0c0c0', margin: 0, letterSpacing: '-0.02em' }}>
+              Text Gesture Editor
+            </h1>
+            <p style={{ fontSize: 13, color: '#aaa', margin: '4px 0 0' }}>
+              Pinch with 2 fingers to resize • Drag to move • Touch-optimized
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', padding: '9px 20px', fontWeight: 700, cursor: 'pointer', fontSize: 14, flexShrink: 0, marginTop: 4 }}>
+            Done
+          </button>
         </div>
+        {/* Divider line */}
+        <div style={{ height: 2, background: '#222', margin: '14px 0 0', borderRadius: 1 }} />
       </div>
 
-      <div
-        ref={containerRef}
-        style={{ flex: 1, position: 'relative', overflow: 'hidden', touchAction: 'none', background: '#000' }}
-        onClick={() => setSelectedId(null)}
-      >
-        {videoSrc
-          ? <video ref={videoRef} src={videoSrc} loop playsInline style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }} />
-          : <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 14 }}>No video preview</div>
-        }
-        {textBoxes.map(box => {
-          const isActive = box.id === selectedId;
-          return (
-            <div
-              key={box.id}
-              style={boxStyle(box, isActive)}
-              onPointerDown={e => onBoxPointerDown(e, box.id)}
-            >
-              {!isCover(box) && (
-                box.text || <span style={{ opacity: 0.4, fontWeight: 400, fontSize: '0.75em' }}>tap to edit</span>
-              )}
-              {isActive && <Handles boxId={box.id} onPointerDown={onHandlePointerDown} />}
+      {/* Canvas */}
+      <div style={{ padding: '16px 24px 6px', flexShrink: 0 }}>
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_W}
+          height={CANVAS_H}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          style={{ width: '100%', maxWidth: 700, display: 'block', margin: '0 auto', touchAction: 'none', borderRadius: 10, border: '1px solid #1a1a1a', cursor: 'crosshair' }}
+        />
+        {videoSrc && (
+          <video ref={videoRef} src={videoSrc} style={{ display: 'none' }} loop playsInline muted autoPlay />
+        )}
+        <p style={{ textAlign: 'center', fontSize: 13, color: '#f59e0b', margin: '10px 0 0', fontWeight: 500 }}>
+          👆 2 fingers to resize • 1 finger to move
+        </p>
+      </div>
+
+      {/* Controls card */}
+      <div style={{ padding: '8px 24px 32px', flexShrink: 0 }}>
+        <div style={{ maxWidth: 700, margin: '0 auto', background: '#fff', border: '1.5px solid #e5e7eb', borderRadius: 14, padding: '20px 20px 18px' }}>
+
+          <Field label="TEXT CONTENT">
+            <input
+              value={text}
+              onChange={e => setText(e.target.value.slice(0, 80))}
+              placeholder="Add Your Text Here"
+              style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', color: '#111' }}
+            />
+          </Field>
+
+          <Field label={`FONT SIZE: ${fontSize}PX`}>
+            <input type="range" min={16} max={120} value={fontSize}
+              onChange={e => setFontSize(+e.target.value)}
+              style={{ width: '100%', accentColor: '#2563eb' }} />
+          </Field>
+
+          <Field label={`POSITION X: ${posX}PX`}>
+            <input type="range" min={0} max={CANVAS_W} value={posX}
+              onChange={e => setPosX(+e.target.value)}
+              style={{ width: '100%', accentColor: '#2563eb' }} />
+          </Field>
+
+          <Field label={`POSITION Y: ${posY}PX`}>
+            <input type="range" min={0} max={CANVAS_H} value={posY}
+              onChange={e => setPosY(+e.target.value)}
+              style={{ width: '100%', accentColor: '#2563eb' }} />
+          </Field>
+
+          {/* Section divider */}
+          <div style={{ height: 1, background: '#f0f0f0', margin: '10px 0 14px' }} />
+
+          <Field label="FONT FAMILY">
+            <select value={font} onChange={e => setFont(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 14, background: '#fff', cursor: 'pointer', outline: 'none', color: '#111' }}>
+              {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+
+          <div style={{ display: 'flex', gap: 14 }}>
+            <div style={{ flex: 1 }}>
+              <Field label="TEXT COLOR">
+                <input type="color" value={textColor} onChange={e => setTextColor(e.target.value)}
+                  style={{ width: '100%', height: 42, border: '1.5px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', padding: 3 }} />
+              </Field>
             </div>
-          );
-        })}
-      </div>
+            <div style={{ flex: 1 }}>
+              <Field label="BACKGROUND">
+                <input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)}
+                  style={{ width: '100%', height: 42, border: '1.5px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', padding: 3 }} />
+              </Field>
+            </div>
+          </div>
 
-      {sel ? (
-        <div style={{ background: '#0a0a12', borderTop: '1.5px solid #1e1e3a', padding: '12px 14px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          {isCover(sel)
-            ? <CoverPanel box={sel} onUpdate={p => updateBox(sel.id, p)} onRemove={() => removeBox(sel.id)} />
-            : <TextPanel  box={sel} onUpdate={p => updateBox(sel.id, p)} onRemove={() => removeBox(sel.id)} />
-          }
+          {/* Section divider */}
+          <div style={{ height: 1, background: '#f0f0f0', margin: '10px 0 14px' }} />
+
+          <button
+            onClick={() => setShowExport(v => !v)}
+            style={{ width: '100%', padding: '11px', background: '#111827', border: 'none', borderRadius: 8, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            📋 Export Settings
+          </button>
+
+          {showExport && (
+            <div style={{ marginTop: 12 }}>
+              <pre style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: 14, fontSize: 12, overflow: 'auto', maxHeight: 220, color: '#374151', margin: 0 }}>
+                {exportJSON()}
+              </pre>
+              <button onClick={handleCopy}
+                style={{ marginTop: 8, padding: '8px 18px', background: copied ? '#16a34a' : '#2563eb', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'background .2s' }}>
+                {copied ? '✓ Copied!' : 'Copy to Clipboard'}
+              </button>
+            </div>
+          )}
         </div>
-      ) : textBoxes.length === 0 ? (
-        <div style={{ padding: 14, textAlign: 'center', color: '#555', fontSize: 13, flexShrink: 0 }}>
-          Tap "+ Text" to add text on the video
-        </div>
-      ) : null}
+      </div>
     </div>
   );
 }
 
-const S = {
-  btnPrimary:   { background: 'linear-gradient(135deg,#833ab4,#fd1d1d)', border: 'none', borderRadius: 8, color: '#fff', padding: '8px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 },
-  btnSecondary: { background: '#1a1a2e', border: '1px solid #444', borderRadius: 8, color: '#ccc', padding: '8px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 14 },
-  btnGhost:     { background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, color: '#aaa', padding: '8px 12px', cursor: 'pointer', fontSize: 15 },
-  iconBtn:      { width: 32, height: 32, borderRadius: 8, border: '1px solid #3a3a5a', background: '#141420', color: '#bbb', cursor: 'pointer', fontSize: 18, padding: 0 },
-};
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.07em', marginBottom: 6 }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
