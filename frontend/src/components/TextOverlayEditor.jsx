@@ -29,7 +29,7 @@ function boxStyle(box, isActive) {
     userSelect: 'none',
     cursor: 'grab',
     borderRadius: 10,
-    outline: isActive ? '2px solid rgba(123,111,255,0.9)' : 'none',
+    outline: isActive ? '3px solid #ff0000' : 'none', /* DEBUG red outline */
     pointerEvents: 'all',
   };
   if (cover) {
@@ -218,6 +218,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const [selectedId, setSelectedId] = useState(null);
   const [playing, setPlaying]       = useState(false);
 
+  // DEBUG: confirm new component is mounted
+  useEffect(() => { console.log('[TextOverlayEditor] MOUNTED — new component v2'); return () => console.log('[TextOverlayEditor] UNMOUNTED'); }, []);
   useEffect(() => { boxesRef.current = textBoxes; }, [textBoxes]);
 
   const sel = textBoxes.find(b => b.id === selectedId) ?? null;
@@ -305,6 +307,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       if (g.mode === 'drag') {
         const rect = containerRef.current?.getBoundingClientRect();
         if (!rect) return;
+        // DEBUG: remove before ship
+        console.log('[TextOverlayEditor] DRAG id=%s x=%d y=%d', g.id, Math.round(e.clientX), Math.round(e.clientY));
         onChange(prev => prev.map(b => b.id === g.id ? {
           ...b,
           xPct: Math.max(2, Math.min(98, ((e.clientX - rect.left - g.offsetX) / rect.width)  * 100)),
@@ -337,6 +341,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
                         : g.corner === 'nw' ? -(dx + dy) / 2
                         : g.corner === 'ne' ?  (dx - dy) / 2
                         :                     -(dx - dy) / 2;
+          // DEBUG: remove before ship
+          console.log('[TextOverlayEditor] RESIZE corner=%s outward=%d', g.corner, Math.round(outward));
           onChange(prev => prev.map(b => b.id === g.id ? {
             ...b, fontSize: Math.max(12, Math.min(200, Math.round(g.startFontSize + outward * 0.25))),
           } : b));
