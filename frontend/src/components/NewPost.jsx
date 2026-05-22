@@ -242,6 +242,8 @@ export default function NewPost() {
             <button onClick={() => navigator.clipboard.writeText(onScreenText)} style={s.copyBtn}>Copy</button>
           </div>
           <textarea
+            id="on-screen-text"
+            name="on_screen_text"
             value={onScreenText}
             onChange={e => setOnScreenText(e.target.value)}
             rows={2}
@@ -334,12 +336,12 @@ export default function NewPost() {
                   <div style={s.editLabel}>Trim (seconds)</div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3, flex: 1 }}>
-                      <input type="number" min="0" placeholder="0" value={trimStart} onChange={e => setTrimStart(e.target.value)} style={{ ...s.timeInput, flex: 1, minWidth: 0 }} />
+                      <input id="trim-start" name="trim_start" type="number" min="0" placeholder="0" value={trimStart} onChange={e => setTrimStart(e.target.value)} style={{ ...s.timeInput, flex: 1, minWidth: 0 }} />
                       <span style={{ color: '#555', fontSize: 11 }}>s</span>
                     </div>
                     <span style={{ color: '#383838' }}>—</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3, flex: 1 }}>
-                      <input type="number" min="0" placeholder="end" value={trimEnd} onChange={e => setTrimEnd(e.target.value)} style={{ ...s.timeInput, flex: 1, minWidth: 0 }} />
+                      <input id="trim-end" name="trim_end" type="number" min="0" placeholder="end" value={trimEnd} onChange={e => setTrimEnd(e.target.value)} style={{ ...s.timeInput, flex: 1, minWidth: 0 }} />
                       <span style={{ color: '#555', fontSize: 11 }}>s</span>
                     </div>
                   </div>
@@ -406,12 +408,12 @@ export default function NewPost() {
         )}
 
         <Section label="Caption">
-          <textarea value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} placeholder="Edit your caption…" />
+          <textarea id="caption" name="caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} placeholder="Edit your caption…" />
           <div style={s.charCount}>{caption.length} / 2200</div>
         </Section>
 
         <Section label="Post to Instagram Account">
-          <select value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
+          <select id="account-select-review" name="account_id" value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
             <option value="">Select account…</option>
             {accounts.map(a => <option key={a.id} value={a.id}>@{a.username} — {a.name}</option>)}
           </select>
@@ -430,7 +432,7 @@ export default function NewPost() {
         {scheduling && (
           <div style={s.scheduleBox}>
             <div style={s.label}>Pick date & time</div>
-            <input type="datetime-local" min={minTime} value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} style={s.input} />
+            <input id="schedule-time" name="schedule_time" type="datetime-local" min={minTime} value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} style={s.input} />
             <button
               onClick={handleSchedule}
               disabled={!scheduleTime || posting || !accountId}
@@ -459,7 +461,7 @@ export default function NewPost() {
       {error && <div style={s.errorBox}>{error}</div>}
 
       <Section label="Account (optional)">
-        <select value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
+        <select id="account-select" name="account_id" value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
           <option value="">No account selected</option>
           {accounts.map(a => <option key={a.id} value={a.id}>@{a.username} — {a.name}</option>)}
         </select>
@@ -480,12 +482,14 @@ export default function NewPost() {
             </>
           )}
         </div>
-        <input ref={fileRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={e => { setFile(e.target.files[0]); setUrl(''); }} />
+        <input id="video-file" name="video_file" ref={fileRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={e => { setFile(e.target.files[0]); setUrl(''); }} />
 
         {!file && (
           <>
             <div style={s.orDivider}>or paste a link</div>
             <input
+              id="video-url"
+              name="video_url"
               type="text" value={url}
               onChange={e => setUrl(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleProcess()}
@@ -535,7 +539,7 @@ function IgVideoUpload({ postId, onUploaded }) {
           : <><div style={{ fontSize: 24, marginBottom: 6 }}>📁</div><div style={{ color: '#666', fontSize: 13 }}>Tap to upload the video file</div></>
         }
       </div>
-      <input ref={ref} type="file" accept="video/*" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+      <input id="ig-video-file" name="ig_video_file" ref={ref} type="file" accept="video/*" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
     </div>
   );
 }
@@ -562,7 +566,7 @@ function SliderRow({ label, value, min, max, step, def, onChange, format }) {
           )}
         </div>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#833ab4', cursor: 'pointer' }} />
+      <input id={`slider-${label.toLowerCase().replace(/\s+/g,'-')}`} name={label.toLowerCase().replace(/\s+/g,'_')} type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} style={{ width: '100%', accentColor: '#833ab4', cursor: 'pointer' }} />
     </div>
   );
 }

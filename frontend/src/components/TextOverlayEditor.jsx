@@ -125,6 +125,8 @@ function TextPanel({ box, onUpdate, onRemove }) {
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 9 }}>
         <textarea
+          id={`text-box-${box.id}`}
+          name={`text_box_${box.id}`}
           autoFocus
           value={box.text}
           onChange={e => onUpdate({ text: e.target.value })}

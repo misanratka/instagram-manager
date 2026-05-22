@@ -99,16 +99,18 @@ export default function AccountManager() {
 
           <div style={s.grid2}>
             <Field label="Account Label">
-              <input required value={f.name} onChange={e => set('name', e.target.value)} placeholder="My Business Page" style={s.input} />
+              <input id="account-name" name="account-name" required value={f.name} onChange={e => set('name', e.target.value)} placeholder="My Business Page" style={s.input} />
             </Field>
             <Field label="Instagram User ID (optional — needed for auto-posting)">
-              <input value={f.ig_user_id} onChange={e => set('ig_user_id', e.target.value)} placeholder="17841XXXXXXXXXX" style={s.input} disabled={!!editId} />
+              <input id="ig-user-id" name="ig_user_id" value={f.ig_user_id} onChange={e => set('ig_user_id', e.target.value)} placeholder="17841XXXXXXXXXX" style={s.input} disabled={!!editId} />
               <div style={s.hint}>Numeric ID from Meta Graph API — only required if you want to auto-post</div>
             </Field>
           </div>
 
           <Field label={`Access Token (optional — needed for auto-posting)${editId ? ' — leave blank to keep current' : ''}`}>
             <input
+              id="access-token"
+              name="access_token"
               type="password"
               value={f.access_token}
               onChange={e => set('access_token', e.target.value)}
@@ -120,7 +122,7 @@ export default function AccountManager() {
 
           <div style={s.grid2}>
             <Field label="Caption Style">
-              <select value={f.caption_style} onChange={e => set('caption_style', e.target.value)} style={s.select}>
+              <select id="caption-style" name="caption_style" value={f.caption_style} onChange={e => set('caption_style', e.target.value)} style={s.select}>
                 {STYLES.map(st => <option key={st} value={st}>{st.charAt(0).toUpperCase() + st.slice(1)}</option>)}
               </select>
             </Field>
@@ -128,6 +130,8 @@ export default function AccountManager() {
 
           <Field label="Custom Caption Prompt (optional — overrides style)">
             <textarea
+              id="caption-prompt"
+              name="caption_prompt"
               value={f.caption_prompt}
               onChange={e => set('caption_prompt', e.target.value)}
               placeholder="e.g. Write a fitness-focused caption with a call to action. Always include #FitnessMotivation."
