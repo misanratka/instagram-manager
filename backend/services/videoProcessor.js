@@ -259,7 +259,7 @@ function writeSubtitleFile(content, inputPath, ext) {
   return p;
 }
 
-async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = [], burnSubtitles, subtitleStyle = 'standard', enhance, trim, adjustments, speed, cropRatio }) {
+async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = [], burnSubtitles, subtitleStyle = 'standard', enhance, trim, adjustments, speed, cropRatio, qualityPreset, denoise, sharpness, upscale }) {
   const uploadDir = getUploadDir();
   const outFilename = `enhanced_${uuidv4()}.mp4`;
   const outputPath = path.join(uploadDir, outFilename);
@@ -287,34 +287,75 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     aFilters.push(`atempo=${spd}`);
   }
 
-  // 3. Denoise first — clean compressed noise before colour grading
-  if (enhance) {
-    vFilters.push('hqdn3d=luma_spatial=3:chroma_spatial=2:luma_tmp=4:chroma_tmp=4');
+  // 3. Quality preset pipeline
+  const PRESETS = {
+    instagram: { dL:4,  dC:3,  dT:6,  sL:1.6, sC:0.5,  br:0.06, ct:1.18, sat:1.45, gm:1.06, cas:0.75, crf:'14', curves:true,  deband:true,  nlmeans:true  },
+    cinematic: { dL:5,  dC:4,  dT:7,  sL:0.9, sC:0.25, br:0.00, ct:1.30, sat:0.85, gm:1.12, cas:0.5,  crf:'13', curves:true,  deband:true,  nlmeans:true  },
+    crisp:     { dL:3,  dC:2,  dT:4,  sL:2.5, sC:0.7,  br:0.03, ct:1.20, sat:1.15, gm:0.93, cas:1.0,  crf:'12', curves:false, deband:true,  nlmeans:false },
+    lowlight:  { dL:8,  dC:6,  dT:10, sL:1.0, sC:0.3,  br:0.18, ct:1.35, sat:1.10, gm:1.50, cas:0.6,  crf:'14', curves:true,  deband:true,  nlmeans:true  },
+    vivid:     { dL:3,  dC:2,  dT:4,  sL:1.5, sC:0.5,  br:0.08, ct:1.22, sat:2.00, gm:0.93, cas:0.8,  crf:'13', curves:true,  deband:false, nlmeans:false },
+  };
+
+  const preset = PRESETS[qualityPreset] || (enhance ? PRESETS.instagram : null);
+
+  // NLMeans — removes Instagram compression blocks
+  if (preset?.nlmeans) {
+    vFilters.push('nlmeans=s=4:p=5:r=11');
   }
 
-  // 4. Colour adjustments
+  // hqdn3d temporal pass
+  const denoiseStrength = Number(denoise) || 0;
+  if (preset) {
+    vFilters.push(`hqdn3d=luma_spatial=${preset.dL}:chroma_spatial=${preset.dC}:luma_tmp=${preset.dT}:chroma_tmp=${(preset.dT * 0.85).toFixed(1)}`);
+  } else if (denoiseStrength > 0) {
+    const ls = denoiseStrength, cs = Math.max(0, denoiseStrength - 1), lt = denoiseStrength * 1.5, ct2 = denoiseStrength * 1.1;
+    vFilters.push(`hqdn3d=luma_spatial=${ls}:chroma_spatial=${cs}:luma_tmp=${lt}:chroma_tmp=${ct2}`);
+  }
+
+  // Upscale with Lanczos
+  if (upscale && upscale !== 'none') {
+    vFilters.push(`scale=${upscale}:flags=lanczos+accurate_rnd`);
+  } else if (preset) {
+    vFilters.push("scale='if(gt(iw,1920),iw,1920)':'if(gt(ih,1080),ih,1080)':force_original_aspect_ratio=decrease:flags=lanczos");
+  }
+
+  // Colour grading
   const br  = Number(adjustments?.brightness) || 0;
   const ct  = Number(adjustments?.contrast)   || 1;
   const sat = Number(adjustments?.saturation) || 1;
-  const finalBr  = enhance ? Math.min(0.5,  br  + 0.04) : br;
-  const finalCt  = enhance ? Math.min(2.0,  ct  * 1.08) : ct;
-  const finalSat = enhance ? Math.min(3.0,  sat * 1.25) : sat;
+  const finalBr  = preset ? Math.min(0.5,  br  + preset.br)  : br;
+  const finalCt  = preset ? Math.min(2.5,  ct  * preset.ct)  : ct;
+  const finalSat = preset ? Math.min(3.5,  sat * preset.sat) : sat;
+  const gammaVal = preset ? preset.gm : 1.0;
 
   if (Math.abs(finalBr) > 0.001 || Math.abs(finalCt - 1) > 0.001 || Math.abs(finalSat - 1) > 0.001) {
-    const gamma = enhance ? ':gamma=1.05' : '';
-    vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}${gamma}`);
+    const gammaStr = (preset && Math.abs(gammaVal - 1) > 0.001) ? `:gamma=${gammaVal}:gamma_weight=0.9` : '';
+    vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}${gammaStr}`);
   }
 
-  // 5. Cinematic polish + sharpening pipeline (enhance only)
-  if (enhance) {
-    // Subtle S-curve — cinematic tonal punch without hard clipping
-    vFilters.push("curves=all='0/0 0.08/0.09 0.45/0.48 0.92/0.92 1/1'");
-    // Deband — removes banding that Instagram recompression amplifies
-    vFilters.push('deband=1thr=0.06:2thr=0.05:3thr=0.05:range=16:blur=true');
-    // CAS — contrast-adaptive edge sharpening, no ringing
-    vFilters.push('cas=strength=0.6');
-    // Unsharp — strong luma crisp pass, gentle chroma to preserve colour fidelity
-    vFilters.push('unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=1.0:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=0.3');
+  // S-curve — per channel RGB, lifted shadows, punchy mids
+  if (preset?.curves) {
+    vFilters.push("curves=r='0/0 0.1/0.14 0.5/0.56 0.9/0.92 1/1':g='0/0 0.1/0.13 0.5/0.55 0.9/0.91 1/1':b='0/0 0.08/0.10 0.5/0.52 0.9/0.90 1/1'");
+  }
+
+  // Deband
+  if (preset?.deband) {
+    vFilters.push('deband=1thr=0.08:2thr=0.07:3thr=0.06:range=20:blur=true');
+  }
+
+  // CAS — contrast-adaptive sharpening
+  if (preset) {
+    vFilters.push(`cas=strength=${preset.cas}`);
+  }
+
+  // Double unsharp — broad structure + fine detail
+  if (preset) {
+    const sharpLuma = Number(sharpness) > 0 ? Number(sharpness) : preset.sL;
+    vFilters.push(`unsharp=luma_msize_x=7:luma_msize_y=7:luma_amount=${(sharpLuma * 0.6).toFixed(2)}:chroma_msize_x=5:chroma_msize_y=5:chroma_amount=${(preset.sC * 0.5).toFixed(2)}`);
+    vFilters.push(`unsharp=luma_msize_x=3:luma_msize_y=3:luma_amount=${(sharpLuma * 0.7).toFixed(2)}:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=${(preset.sC * 0.4).toFixed(2)}`);
+  } else if (Number(sharpness) > 0) {
+    const sh = Number(sharpness);
+    vFilters.push(`unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=${sh.toFixed(2)}:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=${(sh * 0.3).toFixed(2)}`);
   }
 
   // 5. Burn-in subtitles (3 styles)
@@ -352,15 +393,17 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     if (f) vFilters.push(f);
   }
 
-  const crf = enhance ? '16' : '23';
+  const crf = preset?.crf || (enhance ? '16' : '23');
   const args = [...inputArgs];
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
-  args.push('-c:v', 'libx264', '-preset', enhance ? 'medium' : 'fast', '-crf', crf);
-  if (enhance) {
+  const isEnhanced = !!(preset || enhance);
+  args.push('-c:v', 'libx264', '-preset', isEnhanced ? 'slow' : 'fast', '-crf', crf);
+  if (isEnhanced) {
     args.push('-profile:v', 'high', '-level:v', '4.2');
-    args.push('-maxrate', '15M', '-bufsize', '30M');
+    args.push('-maxrate', '25M', '-bufsize', '50M');
+    args.push('-refs', '5', '-bf', '3');
   }
   args.push('-pix_fmt', 'yuv420p');
   args.push('-c:a', 'aac', '-b:a', enhance ? '192k' : '128k', '-ar', '44100', '-movflags', '+faststart', outputPath);
