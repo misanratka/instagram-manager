@@ -287,27 +287,34 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     aFilters.push(`atempo=${spd}`);
   }
 
-  // 3. Color adjustments + quality boost
+  // 3. Denoise first — clean compressed noise before colour grading
+  if (enhance) {
+    vFilters.push('hqdn3d=luma_spatial=3:chroma_spatial=2:luma_tmp=4:chroma_tmp=4');
+  }
+
+  // 4. Colour adjustments
   const br  = Number(adjustments?.brightness) || 0;
   const ct  = Number(adjustments?.contrast)   || 1;
   const sat = Number(adjustments?.saturation) || 1;
-  const finalBr  = enhance ? Math.min(0.5,  br  + 0.06) : br;
-  const finalCt  = enhance ? Math.min(2.0,  ct  * 1.10) : ct;
-  const finalSat = enhance ? Math.min(3.0,  sat * 1.20) : sat;
+  const finalBr  = enhance ? Math.min(0.5,  br  + 0.04) : br;
+  const finalCt  = enhance ? Math.min(2.0,  ct  * 1.08) : ct;
+  const finalSat = enhance ? Math.min(3.0,  sat * 1.25) : sat;
 
   if (Math.abs(finalBr) > 0.001 || Math.abs(finalCt - 1) > 0.001 || Math.abs(finalSat - 1) > 0.001) {
-    const gamma = enhance ? ':gamma=1.04' : '';
+    const gamma = enhance ? ':gamma=1.05' : '';
     vFilters.push(`eq=brightness=${finalBr.toFixed(3)}:contrast=${finalCt.toFixed(3)}:saturation=${finalSat.toFixed(3)}${gamma}`);
   }
 
-  // 4. Denoise → contrast-adaptive sharpen → unsharp on quality boost
+  // 5. Cinematic polish + sharpening pipeline (enhance only)
   if (enhance) {
-    // Better denoise: stronger luma pass, gentler chroma to preserve colour detail
-    vFilters.push('hqdn3d=2:1:4:3');
-    // Contrast-adaptive sharpening — recovers edge detail without ringing artefacts
-    vFilters.push('cas=strength=0.5');
-    // Light unsharp on top for extra crispness
-    vFilters.push('unsharp=3:3:0.8:3:3:0.0');
+    // Subtle S-curve — cinematic tonal punch without hard clipping
+    vFilters.push("curves=all='0/0 0.08/0.09 0.45/0.48 0.92/0.92 1/1'");
+    // Deband — removes banding that Instagram recompression amplifies
+    vFilters.push('deband=1thr=0.06:2thr=0.05:3thr=0.05:range=16:blur=true');
+    // CAS — contrast-adaptive edge sharpening, no ringing
+    vFilters.push('cas=strength=0.6');
+    // Unsharp — strong luma crisp pass, gentle chroma to preserve colour fidelity
+    vFilters.push('unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=1.0:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=0.3');
   }
 
   // 5. Burn-in subtitles (3 styles)
@@ -345,14 +352,18 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     if (f) vFilters.push(f);
   }
 
-  const crf = enhance ? '18' : '24';
+  const crf = enhance ? '16' : '23';
   const args = [...inputArgs];
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
-  args.push('-c:v', 'libx264', '-preset', 'fast', '-threads', '2', '-crf', crf);
-  if (enhance) args.push('-maxrate', '8M', '-bufsize', '16M');
-  args.push('-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', outputPath);
+  args.push('-c:v', 'libx264', '-preset', enhance ? 'medium' : 'fast', '-crf', crf);
+  if (enhance) {
+    args.push('-profile:v', 'high', '-level:v', '4.2');
+    args.push('-maxrate', '15M', '-bufsize', '30M');
+  }
+  args.push('-pix_fmt', 'yuv420p');
+  args.push('-c:a', 'aac', '-b:a', enhance ? '192k' : '128k', '-ar', '44100', '-movflags', '+faststart', outputPath);
 
   await runFFmpeg(args, 'enhance');
   if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);

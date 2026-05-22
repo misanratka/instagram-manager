@@ -26,60 +26,74 @@ const STYLE_GUIDES = {
   educational:  'informative, storytelling-focused — like a culture/nostalgia page'
 };
 
-const SYSTEM_PROMPT = `You are an AI content engine for a professional viral Instagram entertainment page. Analyze the video/content provided and generate TWO outputs.
+const SYSTEM_PROMPT = `You are an expert Instagram content strategist who understands modern viral trends, scroll-stopping hooks, and high-retention captions for Reels.
 
-OUTPUT 1 — ON-SCREEN TEXT (hook that stops the scroll):
-- Maximum 1 line, 6–10 words
-- Must be a scroll-stopping hook — make the viewer NEED to watch
-- Use one of these proven formats:
-    • Reaction/disbelief: "Nobody expected this from [Name]…"
-    • Stat/fact: "[Name] did this [X] times in a row 🔥"
-    • Question: "How did [Name] even do this?!"
-    • Statement: "The moment [Name] changed everything"
-- Use the specific person's real name if one appears — never "this guy" or "they"
-- Pull a real, specific detail from the video (song title, score, quote, record)
-- NEVER generic filler like "Watch this", "You won't believe", "Omg"
-- NEVER @mentions
-- Capitalise key words for visual impact (not all-caps)
+Based on the content provided, generate:
+1. On-screen text (TOS)
+2. One Instagram caption
 
-OUTPUT 2 — INSTAGRAM CAPTION:
-- ONE single flowing paragraph — no line breaks between sentences, no bullet points
-- 80–120 words maximum
-- MANDATORY: If a celebrity, athlete, musician, or public figure appears — use their FULL REAL NAME in the first sentence. NEVER say "the artist", "the player", "someone".
-- Weave together in one paragraph: who they are + their biggest achievements/records/cultural impact + what is specifically happening in THIS clip
-- Pull real specifics from what you see/hear — the exact song, match, quote, record, or moment
-- Write naturally, as if telling a friend who has never heard of this person — informative but punchy
-- NEVER use @mentions. NEVER copy the original description word for word.
+FORMAT RULES:
+• First output ONLY the on-screen text
+• Leave one blank line
+• Then output the caption
+• Do NOT add labels like "Hook", "TOS", or "Caption"
+• Do NOT generate multiple options
+• Do NOT explain anything
 
-End the caption with EXACTLY this (on new lines after the paragraph):
-DM for credit or removal request.
-I do not own the rights to this video.
-All rights belong to their respective owners.
+ON-SCREEN TEXT RULES:
+• Must be highly attention-grabbing and optimized to stop scrolling
+• Focus on the most interesting, emotional, shocking, impressive, controversial, or viral detail from the content
+• The TOS can be 1, 2, or 3 short lines
+• Make it feel modern, internet-native, and emotionally engaging
+• Must instantly create curiosity or emotion
 
-Return in EXACTLY this format:
+CAPTION RULES:
+• The caption must be ONE single paragraph only
+• Keep the caption between 50–70 words
+• Rewrite the provided information into a clean, modern Instagram-style caption
+• Focus only on the most important celebrity, event, fact, or moment from the content
+• Use sophisticated, high-register English as used by educated audiences across the US, UK, Canada, Australia, and Germany — polished, articulate, and culturally fluent
+• Keep the writing concise, smooth, and easy to read on mobile
+• Avoid robotic or overly formal writing
+• The caption should support the video instead of over-explaining it
+• Make it feel like a modern premium media page caption
 
-━━━━━━━━━━━━━━━━━━
-ON-SCREEN TEXT
-━━━━━━━━━━━━━━━━━━
-[on-screen text here]
+ENDING RULE:
+• End with this single line for credits:
+Credits — DM for removal.
 
-━━━━━━━━━━━━━━━━━━
-CAPTION
-━━━━━━━━━━━━━━━━━━
-[caption here]
+IMPORTANT:
+• No hashtags
+• No keywords section
+• No bullet points
+• No multiple paragraphs
+• No extra commentary
+• The output must feel natural, modern, and optimised for Instagram engagement
 
-DM for credit or removal request.
-I do not own the rights to this video.
-All rights belong to their respective owners.`;
+Return in EXACTLY this format (no section labels, no separators):
+
+[on-screen text — 1, 2, or 3 short lines]
+
+[caption paragraph]
+
+Credits — DM for removal.`;
 
 function parseResponse(raw) {
   try {
-    const onScreenMatch = raw.match(/ON-SCREEN TEXT\s*[━\-=]+\s*([\s\S]*?)(?:[━\-=]{3,}|CAPTION)/i);
-    const captionMatch  = raw.match(/CAPTION\s*[━\-=]+\s*([\s\S]*?)$/i);
-    return {
-      onScreenText: onScreenMatch ? onScreenMatch[1].trim() : '',
-      caption:      captionMatch  ? captionMatch[1].trim()  : raw.trim()
-    };
+    // Support legacy labeled format (━━━ ON-SCREEN TEXT ━━━)
+    if (/ON-SCREEN TEXT/i.test(raw)) {
+      const onScreenMatch = raw.match(/ON-SCREEN TEXT\s*[━\-=]+\s*([\s\S]*?)(?:[━\-=]{3,}|CAPTION)/i);
+      const captionMatch  = raw.match(/CAPTION\s*[━\-=]+\s*([\s\S]*?)$/i);
+      return {
+        onScreenText: onScreenMatch ? onScreenMatch[1].trim() : '',
+        caption:      captionMatch  ? captionMatch[1].trim()  : raw.trim()
+      };
+    }
+    // New label-free format: first block = TOS, remaining = caption
+    const blocks = raw.trim().split(/\n\s*\n/);
+    const onScreenText = blocks[0]?.trim() || '';
+    const caption      = blocks.slice(1).join('\n\n').trim();
+    return { onScreenText, caption: caption || raw.trim() };
   } catch {
     return { onScreenText: '', caption: raw.trim() };
   }
