@@ -63,7 +63,7 @@ Examples of hook energy:
 
 CAPTION RULES:
 • The caption must be ONE single paragraph only
-• Keep the caption between 80–85 words. Absolute minimum is 65 words — never go below that under any circumstances
+• Write one rich, flowing paragraph of 120–160 words minimum. Never go below 120 words under any circumstances
 • Rewrite the provided information into a concise, modern Instagram-style caption
 • Focus on the most important celebrity fact, event, achievement, influence, or viral moment
 • The writing should feel smooth, premium, and native to Western entertainment/social media culture
@@ -173,7 +173,7 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
     ],
-    max_tokens: 800,
+    max_tokens: 1200,
     temperature: 0.95
   });
   return parseResponse(completion.choices[0].message.content);
