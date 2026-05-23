@@ -133,6 +133,32 @@ function startScheduler() {
     }
   });
 
+  // Auto-delete posts older than 2 days
+  cron.schedule('0 * * * *', async () => {
+    let db;
+    try { db = getDB(); } catch { return; }
+    try {
+      const cutoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      const old = await db.all(
+        `SELECT id, enhanced_video_path, local_video_path FROM posts WHERE created_at < $1`,
+        [cutoff]
+      );
+      for (const post of old) {
+        // Delete video files from disk
+        const fs = require('fs');
+        for (const p of [post.enhanced_video_path, post.local_video_path]) {
+          if (p && fs.existsSync(p)) {
+            try { fs.unlinkSync(p); } catch (_) {}
+          }
+        }
+        await db.run('DELETE FROM posts WHERE id=$1', [post.id]);
+      }
+      if (old.length > 0) logger.info(`Auto-cleaned ${old.length} post(s) older than 2 days`);
+    } catch (err) {
+      logger.warn(`Auto-cleanup failed: ${err.message}`);
+    }
+  });
+
   logger.info('Post scheduler started (checking every minute)');
 }
 
