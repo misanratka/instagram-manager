@@ -268,7 +268,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   const outFilename = `enhanced_${uuidv4()}.mp4`;
   const outputPath = path.join(uploadDir, outFilename);
 
-  const inputArgs = ['-y'];
+  const inputArgs = ['-y', '-threads', '1'];
   const trimStart = Number(trim?.start) || 0;
   const trimEnd   = Number(trim?.end)   || 0;
   if (trimStart > 0) inputArgs.push('-ss', trimStart.toFixed(3));
@@ -310,7 +310,8 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   // hqdn3d temporal pass
   const denoiseStrength = Number(denoise) || 0;
   if (preset) {
-    vFilters.push(`hqdn3d=luma_spatial=${preset.dL}:chroma_spatial=${preset.dC}:luma_tmp=${preset.dT}:chroma_tmp=${(preset.dT * 0.85).toFixed(1)}`);
+    // Reduced hqdn3d strength for lower memory usage
+    vFilters.push(`hqdn3d=luma_spatial=${Math.min(preset.dL,2)}:chroma_spatial=${Math.min(preset.dC,1)}:luma_tmp=${Math.min(preset.dT,3)}:chroma_tmp=${(Math.min(preset.dT,3) * 0.85).toFixed(1)}`);
   } else if (denoiseStrength > 0) {
     const ls = denoiseStrength, cs = Math.max(0, denoiseStrength - 1), lt = denoiseStrength * 1.5, ct2 = denoiseStrength * 1.1;
     vFilters.push(`hqdn3d=luma_spatial=${ls}:chroma_spatial=${cs}:luma_tmp=${lt}:chroma_tmp=${ct2}`);
@@ -343,20 +344,15 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   }
 
   // Deband
-  if (preset?.deband) {
-    vFilters.push('deband=1thr=0.08:2thr=0.07:3thr=0.06:range=20:blur=true');
-  }
+  // deband removed - unnecessary on mobile content
 
-  // CAS — contrast-adaptive sharpening
-  if (preset) {
-    vFilters.push(`cas=strength=${preset.cas}`);
-  }
+  // CAS removed - uses too much memory on free tier
 
   // Double unsharp — broad structure + fine detail
   if (preset) {
+    // Single unsharp pass only — double pass causes OOM on free tier
     const sharpLuma = Number(sharpness) > 0 ? Number(sharpness) : preset.sL;
-    vFilters.push(`unsharp=luma_msize_x=7:luma_msize_y=7:luma_amount=${(sharpLuma * 0.6).toFixed(2)}:chroma_msize_x=5:chroma_msize_y=5:chroma_amount=${(preset.sC * 0.5).toFixed(2)}`);
-    vFilters.push(`unsharp=luma_msize_x=3:luma_msize_y=3:luma_amount=${(sharpLuma * 0.7).toFixed(2)}:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=${(preset.sC * 0.4).toFixed(2)}`);
+    vFilters.push(`unsharp=luma_msize_x=3:luma_msize_y=3:luma_amount=${(sharpLuma * 0.8).toFixed(2)}:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=${(preset.sC * 0.4).toFixed(2)}`);
   } else if (Number(sharpness) > 0) {
     const sh = Number(sharpness);
     vFilters.push(`unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=${sh.toFixed(2)}:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=${(sh * 0.3).toFixed(2)}`);
@@ -397,18 +393,21 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     if (f) vFilters.push(f);
   }
 
-  const crf = preset?.crf || (enhance ? '10' : '23');
+  const crf = preset?.crf || (enhance ? '18' : '23');
   const args = [...inputArgs];
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
-  const isEnhanced = !!(preset || enhance);
-  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', crf);
-  // Much stronger bitrate when quality boost is enabled
-  // CRF controls quality
-  args.push('-profile:v', 'main', '-level:v', '4.0');
+  // Memory-safe encoding for Render free tier (512MB RAM)
+  args.push('-c:v', 'libx264');
+  args.push('-preset', 'ultrafast');   // Fastest, lowest memory
+  args.push('-crf', crf);
+  args.push('-threads', '1');          // Single thread = low memory
+  args.push('-profile:v', 'baseline'); // Baseline = simplest, least memory
+  args.push('-level:v', '3.1');
   args.push('-pix_fmt', 'yuv420p');
-  args.push('-c:a', 'aac', '-b:a', enhance ? '192k' : '128k', '-ar', '44100', '-movflags', '+faststart', outputPath);
+  args.push('-maxrate', '4M', '-bufsize', '4M'); // Cap memory buffer
+  args.push('-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-movflags', '+faststart', outputPath);
 
   await runFFmpeg(args, 'enhance');
   if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
