@@ -1,59 +1,69 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-const FONTS  = ['Arial','Helvetica Neue','Georgia','Impact','Courier New'];
-const COLORS = ['#FFFFFF','#000000','#FF3B30','#FF9500','#FFCC00','#34C759','#007AFF','#5856D6','#FF2D55'];
+const CW = 1080;
+const CH = 1920;
+const FONTS = [
+  { label: 'Default',  value: 'Arial' },
+  { label: 'Serif',    value: 'Georgia' },
+  { label: 'Impact',   value: 'Impact' },
+  { label: 'Mono',     value: 'Courier New' },
+  { label: 'Thin',     value: 'Helvetica Neue' },
+];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClose }) {
 
-  // ── Internal canvas resolution: fixed 1080×1920 (9:16)
-  // This is the coordinate space for ALL text positions.
-  // The canvas CSS scales to fit the screen — but positions are always in 1080×1920 space.
-  const CW = 1080;
-  const CH = 1920;
-
-  const makeBox = (raw) => {
-    const rawText = raw?.text || '';
-    return {
-      id:        raw?.id        ?? Date.now(),
-      lines:     rawText ? rawText.split('\n') : ['Your Text'],
-      fontSize:  raw?.fontSize  ?? 80,
-      posX:      raw?.posX      ?? (raw?.xPct != null ? Math.round((raw.xPct/100)*CW) : CW/2),
-      posY:      raw?.posY      ?? (raw?.yPct != null ? Math.round((raw.yPct/100)*CH) : CH/2),
-      font:      raw?.font      ?? 'Arial',
-      textColor: raw?.textColor ?? raw?.colorHex ?? '#FFFFFF',
-      bg:        raw?.bg        ?? 'none',
-    };
-  };
+  const makeBox = (raw) => ({
+    id:        raw?.id        ?? Date.now(),
+    lines:     raw?.text      ? raw.text.split('\n') : ['Tap to type'],
+    fontSize:  raw?.fontSize  ?? 90,
+    posX:      raw?.posX      ?? (raw?.xPct != null ? Math.round((raw.xPct/100)*CW) : CW/2),
+    posY:      raw?.posY      ?? (raw?.yPct != null ? Math.round((raw.yPct/100)*CH) : CH*0.45),
+    font:      raw?.font      ?? 'Arial',
+    textColor: raw?.textColor ?? '#FFFFFF',
+    bg:        raw?.bg        ?? 'none',
+    align:     raw?.align     ?? 'center',
+  });
 
   const [boxes,     setBoxes]     = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
   const [activeId,  setActiveId]  = useState(() => textBoxes?.[0]?.id ?? boxes[0]?.id);
-  const [showPanel, setShowPanel] = useState(false);
-
-  // Track the canvas's displayed size on screen (for gesture math)
-  const [displayRect, setDisplayRect] = useState({ x:0, y:0, w: window.innerWidth, h: window.innerHeight });
+  const [typing,    setTyping]    = useState(false);   // keyboard open
+  const [activeTab, setActiveTab] = useState('color'); // bottom toolbar tab
+  const [kbHeight,  setKbHeight]  = useState(0);       // keyboard height estimate
 
   const canvasRef  = useRef(null);
   const videoRef   = useRef(null);
   const wrapRef    = useRef(null);
+  const inputRef   = useRef(null);
   const gestureRef = useRef(null);
   const ptrsRef    = useRef(new Map());
   const stateRef   = useRef({ boxes, activeId });
+  const [dispRect, setDispRect] = useState({ x:0, y:0, w:1, h:1 });
 
   useEffect(() => { stateRef.current = { boxes, activeId }; }, [boxes, activeId]);
 
-  // Measure the canvas wrapper so we know how the 1080×1920 maps to screen pixels
+  // Measure canvas display rect
   useEffect(() => {
     function measure() {
-      const el = wrapRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      setDisplayRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+      const r = wrapRef.current?.getBoundingClientRect();
+      if (r) setDispRect({ x:r.left, y:r.top, w:r.width, h:r.height });
     }
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  // Detect keyboard height via viewport resize
+  useEffect(() => {
+    function onResize() {
+      if (window.visualViewport) {
+        const kh = window.innerHeight - window.visualViewport.height;
+        setKbHeight(kh > 50 ? kh : 0);
+      }
+    }
+    window.visualViewport?.addEventListener('resize', onResize);
+    return () => window.visualViewport?.removeEventListener('resize', onResize);
   }, []);
 
   // Emit to parent
@@ -62,69 +72,57 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       id: b.id, text: b.lines.join('\n'),
       fontSize: b.fontSize, posX: b.posX, posY: b.posY,
       font: b.font, textColor: b.textColor, colorHex: b.textColor,
-      xPct: (b.posX / CW) * 100, yPct: (b.posY / CH) * 100,
-      bg: b.bg, align: 'center', widthPct: 80,
+      xPct: (b.posX/CW)*100, yPct: (b.posY/CH)*100,
+      bg: b.bg, align: b.align ?? 'center', widthPct: 80,
     }));
-    onChange(out.filter(b => b.text.trim()));
+    onChange(out.filter(b => b.text.trim() && b.text !== 'Tap to type'));
   }, [boxes]); // eslint-disable-line
 
   const updateBox = useCallback((id, patch) => {
     setBoxes(prev => prev.map(b => b.id === id ? { ...b, ...patch } : b));
   }, []);
 
-  const activeBox = boxes.find(b => b.id === activeId) ?? boxes[0];
+  const ab = boxes.find(b => b.id === activeId) ?? boxes[0];
 
+  // ── Text helpers ──────────────────────────────────────────────────────────
   const addBox = () => {
     const id = Date.now();
-    const nb = makeBox({ id, text: 'New Text', posX: CW/2, posY: CH/3 });
-    setBoxes(prev => [...prev, nb]);
+    setBoxes(prev => [...prev, makeBox({ id, posX: CW/2, posY: CH*0.45 })]);
     setActiveId(id);
-    setShowPanel(true);
+    setTimeout(() => { setTyping(true); inputRef.current?.focus(); }, 50);
   };
 
-  const removeBox = (id) => {
+  const removeActive = () => {
     setBoxes(prev => {
-      const n = prev.filter(b => b.id !== id);
+      const n = prev.filter(b => b.id !== activeId);
       return n.length ? n : [makeBox(null)];
     });
-    setActiveId(boxes.find(b => b.id !== id)?.id ?? boxes[0]?.id);
+    setActiveId(boxes.find(b => b.id !== activeId)?.id ?? boxes[0]?.id);
+    setTyping(false);
   };
 
-  const splitLine = (id, li, charIdx) => {
-    setBoxes(prev => prev.map(b => {
-      if (b.id !== id) return b;
-      const lines = [...b.lines];
-      const line  = lines[li] ?? '';
-      let at = charIdx;
-      if (at == null) {
-        const mid = Math.floor(line.length / 2);
-        at = line.lastIndexOf(' ', mid);
-        if (at <= 0) at = line.indexOf(' ', mid);
-        if (at <= 0) at = mid;
-      }
-      lines.splice(li, 1, line.slice(0, at).trimEnd() || ' ', line.slice(at).trimStart() || ' ');
-      return { ...b, lines };
-    }));
+  // The typing input value = all lines joined by newline
+  const inputValue = ab?.lines.join('\n') ?? '';
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    updateBox(ab.id, { lines: val.split('\n') });
   };
 
-  const mergeLine = (id, li) => {
-    if (li === 0) return;
-    setBoxes(prev => prev.map(b => {
-      if (b.id !== id) return b;
-      const lines = [...b.lines];
-      lines[li-1] = (lines[li-1] + ' ' + lines[li]).trim();
-      lines.splice(li, 1);
-      return { ...b, lines };
-    }));
-  };
-
-  const updateLine = (id, li, value) => {
-    setBoxes(prev => prev.map(b => {
-      if (b.id !== id) return b;
-      const lines = [...b.lines];
-      lines[li] = value;
-      return { ...b, lines };
-    }));
+  // Split at cursor — triggered by custom Split button
+  const handleSplit = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    const cursor = el.selectionStart;
+    const val    = el.value;
+    const before = val.slice(0, cursor);
+    const after  = val.slice(cursor);
+    const newVal = before + '\n' + after;
+    updateBox(ab.id, { lines: newVal.split('\n') });
+    // Restore cursor after the newline
+    setTimeout(() => {
+      el.selectionStart = el.selectionEnd = cursor + 1;
+    }, 10);
   };
 
   // ── DRAW ──────────────────────────────────────────────────────────────────
@@ -140,74 +138,64 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     const vid = videoRef.current;
     if (vid && vid.readyState >= 2) {
       try {
-        const vw = vid.videoWidth  || CW;
-        const vh = vid.videoHeight || CH;
-        const vRatio = vw / vh;
-        const cRatio = CW / CH;
-
-        let dw, dh, dx = 0, dy = 0;
-        // CONTAIN mode: show full video, no crop, letterbox if needed
-        if (vRatio > cRatio) {
-          dw = CW;
-          dh = CW / vRatio;
-          dy = (CH - dh) / 2;
-        } else {
-          dh = CH;
-          dw = CH * vRatio;
-          dx = (CW - dw) / 2;
-        }
+        const vw = vid.videoWidth||CW, vh = vid.videoHeight||CH;
+        const vR = vw/vh, cR = CW/CH;
+        let dw, dh, dx=0, dy=0;
+        if (vR > cR) { dw=CW; dh=CW/vR; dy=(CH-dh)/2; }
+        else         { dh=CH; dw=CH*vR; dx=(CW-dw)/2; }
         ctx.drawImage(vid, dx, dy, dw, dh);
-      } catch (_) {}
+      } catch(_) {}
     }
 
-    // Text overlays
     boxes.forEach(b => {
       const isActive = b.id === activeId;
-      const lineH    = b.fontSize * 1.3;
+      const lineH    = b.fontSize * 1.35;
       const totalH   = b.lines.length * lineH;
-      const startY   = b.posY - totalH / 2 + lineH / 2;
+      const startY   = b.posY - totalH/2 + lineH/2;
 
-      ctx.font         = `700 ${b.fontSize}px ${b.font}, Arial, sans-serif`;
+      ctx.font         = `700 ${b.fontSize}px "${b.font}", Arial`;
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
 
       b.lines.forEach((line, i) => {
         const ly  = startY + i * lineH;
         const tw  = ctx.measureText(line).width;
-        const pad = 16;
+        const pad = 20;
 
-        if (b.bg !== 'none') {
-          ctx.fillStyle =
-            b.bg === 'black' ? 'rgba(0,0,0,0.82)' :
-            b.bg === 'dark'  ? 'rgba(0,0,0,0.60)' :
-            b.bg === 'white' ? 'rgba(255,255,255,0.92)' :
-            'rgba(255,255,255,0.70)';
-          ctx.beginPath();
-          ctx.roundRect(b.posX - tw/2 - pad, ly - b.fontSize/2 - 8, tw + pad*2, b.fontSize + 16, 10);
-          ctx.fill();
+        // Hard solid background
+        if (b.bg === 'black') {
+          ctx.fillStyle = '#000000';
+          ctx.beginPath(); ctx.roundRect(b.posX-tw/2-pad, ly-b.fontSize/2-12, tw+pad*2, b.fontSize+24, 8); ctx.fill();
+        } else if (b.bg === 'white') {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.beginPath(); ctx.roundRect(b.posX-tw/2-pad, ly-b.fontSize/2-12, tw+pad*2, b.fontSize+24, 8); ctx.fill();
         }
 
-        // No shadow — clean flat text
+        // Flat text — ZERO shadow
         ctx.fillStyle = b.textColor;
         ctx.fillText(line, b.posX, ly);
       });
 
+      // Selection ring
       if (isActive) {
         const maxTw = Math.max(...b.lines.map(l => ctx.measureText(l).width));
-        const pad   = 32;
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth   = 3;
-        ctx.setLineDash([10, 6]);
-        ctx.strokeRect(
-          b.posX - maxTw/2 - pad,
-          b.posY - totalH/2 - pad/2,
-          maxTw + pad*2,
-          totalH + pad
-        );
+        const pad   = 44;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth   = 5;
+        ctx.setLineDash([14, 8]);
+        ctx.strokeRect(b.posX-maxTw/2-pad, b.posY-totalH/2-pad/2, maxTw+pad*2, totalH+pad);
         ctx.setLineDash([]);
+
+        // Corner handles
+        const hx = [b.posX-maxTw/2-pad, b.posX+maxTw/2+pad];
+        const hy = [b.posY-totalH/2-pad/2, b.posY+totalH/2+pad/2];
+        ctx.fillStyle = '#FFFFFF';
+        hx.forEach(x => hy.forEach(y => {
+          ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI*2); ctx.fill();
+        }));
       }
     });
-  }, [CW, CH]);
+  }, []);
 
   useEffect(() => {
     let raf;
@@ -216,251 +204,279 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     return () => cancelAnimationFrame(raf);
   }, [draw]);
 
-  // ── GESTURES — convert screen pixels → 1080×1920 space ───────────────────
-  function screenToCanvas(screenX, screenY) {
-    const scaleX = CW / displayRect.w;
-    const scaleY = CH / displayRect.h;
-    return {
-      cx: (screenX - displayRect.x) * scaleX,
-      cy: (screenY - displayRect.y) * scaleY,
-    };
+  // ── GESTURES ──────────────────────────────────────────────────────────────
+  function s2c(sx, sy) {
+    return { cx:(sx-dispRect.x)*(CW/dispRect.w), cy:(sy-dispRect.y)*(CH/dispRect.h) };
   }
 
   function hitTest(box, cx, cy) {
     if (!box || !canvasRef.current) return false;
     const ctx = canvasRef.current.getContext('2d');
-    ctx.font = `700 ${box.fontSize}px ${box.font}`;
+    ctx.font = `700 ${box.fontSize}px "${box.font}"`;
     const maxTw  = Math.max(...box.lines.map(l => ctx.measureText(l).width));
-    const totalH = box.lines.length * box.fontSize * 1.3;
-    const pad    = 60;
-    return cx >= box.posX - maxTw/2 - pad && cx <= box.posX + maxTw/2 + pad &&
-           cy >= box.posY - totalH/2 - pad && cy <= box.posY + totalH/2 + pad;
+    const totalH = box.lines.length * box.fontSize * 1.35;
+    const pad    = 80;
+    return cx >= box.posX-maxTw/2-pad && cx <= box.posX+maxTw/2+pad &&
+           cy >= box.posY-totalH/2-pad && cy <= box.posY+totalH/2+pad;
   }
 
-  function onPointerDown(e) {
+  function onPtrDown(e) {
     e.preventDefault();
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
-    ptrsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch(_) {}
+    ptrsRef.current.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
+    // Pinch
     if (ptrsRef.current.size >= 2) {
       const pts  = [...ptrsRef.current.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const box  = stateRef.current.boxes.find(b => b.id === stateRef.current.activeId);
-      gestureRef.current = { mode: 'pinch', startDist: dist, startFontSize: box?.fontSize ?? 80 };
+      const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      const box  = stateRef.current.boxes.find(b => b.id===stateRef.current.activeId);
+      gestureRef.current = { mode:'pinch', startDist:dist, startFS:box?.fontSize??90 };
       return;
     }
 
-    const { cx, cy } = screenToCanvas(e.clientX, e.clientY);
-    const { boxes }  = stateRef.current;
-    for (let i = boxes.length - 1; i >= 0; i--) {
-      if (hitTest(boxes[i], cx, cy)) {
-        setActiveId(boxes[i].id);
-        gestureRef.current = {
-          mode: 'drag',
-          startScreenX: e.clientX, startScreenY: e.clientY,
-          startPX: boxes[i].posX,  startPY: boxes[i].posY,
-          id: boxes[i].id,
-        };
+    const { cx, cy } = s2c(e.clientX, e.clientY);
+    for (let i = stateRef.current.boxes.length-1; i >= 0; i--) {
+      const box = stateRef.current.boxes[i];
+      if (hitTest(box, cx, cy)) {
+        setActiveId(box.id);
+        gestureRef.current = { mode:'drag', sx:e.clientX, sy:e.clientY, px:box.posX, py:box.posY, id:box.id, moved:false };
         return;
       }
     }
+    // Tapped empty area — dismiss typing
+    setTyping(false);
+    inputRef.current?.blur();
     gestureRef.current = null;
   }
 
-  function onPointerMove(e) {
+  function onPtrMove(e) {
     const ptr = ptrsRef.current.get(e.pointerId);
-    if (ptr) { ptr.x = e.clientX; ptr.y = e.clientY; }
+    if (ptr) { ptr.x=e.clientX; ptr.y=e.clientY; }
     const g = gestureRef.current;
     if (!g) return;
 
     if (g.mode === 'drag') {
-      const scaleX = CW / displayRect.w;
-      const scaleY = CH / displayRect.h;
+      const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) g.moved = true;
+      if (!g.moved) return;
+      const scX = CW/dispRect.w, scY = CH/dispRect.h;
       updateBox(g.id, {
-        posX: clamp(Math.round(g.startPX + (e.clientX - g.startScreenX) * scaleX), 50, CW - 50),
-        posY: clamp(Math.round(g.startPY + (e.clientY - g.startScreenY) * scaleY), 50, CH - 50),
+        posX: clamp(Math.round(g.px + dx*scX), 60, CW-60),
+        posY: clamp(Math.round(g.py + dy*scY), 60, CH-60),
       });
     } else if (g.mode === 'pinch') {
       const pts  = [...ptrsRef.current.values()];
       if (pts.length < 2) return;
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      updateBox(activeBox?.id, {
-        fontSize: clamp(Math.round(g.startFontSize * dist / g.startDist), 30, 200),
+      const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      updateBox(stateRef.current.activeId, {
+        fontSize: clamp(Math.round(g.startFS * dist/g.startDist), 28, 220),
       });
     }
   }
 
-  function onPointerUp(e) {
+  function onPtrUp(e) {
+    const g = gestureRef.current;
+    // If didn't move — it's a tap → open keyboard
+    if (g?.mode === 'drag' && !g.moved) {
+      setTyping(true);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
     ptrsRef.current.delete(e.pointerId);
     if (ptrsRef.current.size === 0) gestureRef.current = null;
   }
 
-  const ab = activeBox;
-
+  // ── RENDER ────────────────────────────────────────────────────────────────
   return (
     <div style={S.root}>
-      {/* Hidden video */}
-      {videoSrc && (
-        <video ref={videoRef} src={videoSrc} style={{ display:'none' }} loop playsInline muted autoPlay />
-      )}
+      {videoSrc && <video ref={videoRef} src={videoSrc} style={{display:'none'}} loop playsInline muted autoPlay />}
 
-      {/* Top bar */}
-      <div style={S.topBar}>
-        <button onClick={onClose} style={S.topBtn}>✓ Done</button>
-        <span style={S.topHint}>Drag text · Pinch to resize</span>
-        <button onClick={addBox} style={{ ...S.topBtn, color:'#a78bfa' }}>+ Text</button>
+      {/* Hidden textarea for input — always mounted so keyboard works */}
+      <textarea
+        ref={inputRef}
+        value={inputValue}
+        onChange={handleInputChange}
+        style={S.hiddenInput}
+        enterKeyHint="done"
+        onBlur={() => setTyping(false)}
+        onFocus={() => setTyping(true)}
+      />
+
+      {/* ── TOP BAR ── */}
+      <div style={{ ...S.topBar, top: typing ? `env(safe-area-inset-top, 0px)` : 0 }}>
+        <button onClick={onClose} style={S.topBtn}>Done</button>
+        <div style={S.topCenter}>
+          {typing && (
+            <button onMouseDown={e => { e.preventDefault(); handleSplit(); }} style={S.splitBtn}>
+              ↵ Split
+            </button>
+          )}
+        </div>
+        <button onClick={addBox} style={S.topBtnAccent}>+ Text</button>
       </div>
 
-      {/* Canvas — fills remaining screen in 9:16 ratio */}
-      <div ref={wrapRef} style={S.canvasWrap}>
+      {/* ── CANVAS ── */}
+      <div ref={wrapRef} style={{
+        ...S.canvasWrap,
+        bottom: typing ? kbHeight + 100 : 80,
+      }}>
         <canvas
           ref={canvasRef} width={CW} height={CH}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerDown={onPtrDown} onPointerMove={onPtrMove}
+          onPointerUp={onPtrUp}     onPointerCancel={onPtrUp}
           style={S.canvas}
         />
       </div>
 
-      {/* Toggle button */}
-      <button
-        onClick={() => setShowPanel(p => !p)}
-        style={{ ...S.toggleBtn, bottom: showPanel ? 'calc(52vh + 10px)' : '16px' }}
-      >
-        {showPanel ? '↓ Hide' : '✎ Edit Text'}
-      </button>
+      {/* ── BOTTOM TOOLBAR (InShot style) — hidden when keyboard is up ── */}
+      {!typing && (
+        <div style={S.bottomBar}>
 
-      {/* Slide-up panel */}
-      <div style={{ ...S.panel, transform: showPanel ? 'translateY(0)' : 'translateY(100%)' }}>
-
-        {/* Handle bar */}
-        <div style={S.handle} />
-
-        {/* Multi-text tabs */}
-        {boxes.length > 1 && (
-          <div style={S.tabs}>
-            {boxes.map((b, i) => (
-              <button key={b.id} onClick={() => setActiveId(b.id)}
-                style={b.id === activeId ? S.tabOn : S.tab}>
-                Text {i+1}
+          {/* Tab switcher */}
+          <div style={S.tabRow}>
+            {[
+              { id:'color', icon:'🎨', label:'Color' },
+              { id:'font',  icon:'Aa', label:'Font'  },
+              { id:'bg',    icon:'▣',  label:'BG'    },
+              { id:'align', icon:'≡',  label:'Align' },
+            ].map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)}
+                style={{ ...S.tabBtn, ...(activeTab===t.id ? S.tabBtnOn : {}) }}>
+                <span style={S.tabIcon}>{t.icon}</span>
+                <span style={S.tabLabel}>{t.label}</span>
               </button>
             ))}
           </div>
-        )}
 
-        {/* Text lines */}
-        <div style={S.secLabel}>TEXT LINES</div>
-        {ab?.lines.map((line, li) => (
-          <div key={li} style={S.lineRow}>
-            <input
-              value={line}
-              onChange={e => updateLine(ab.id, li, e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); splitLine(ab.id, li, e.currentTarget.selectionStart); }
-                if (e.key === 'Backspace' && e.currentTarget.selectionStart === 0 && li > 0) { e.preventDefault(); mergeLine(ab.id, li); }
-              }}
-              style={S.lineInput}
-              placeholder={`Line ${li+1}`}
-            />
-            <button onClick={() => splitLine(ab.id, li)} style={S.splitBtn}>↵</button>
-            {li > 0 && <button onClick={() => mergeLine(ab.id, li)} style={S.joinBtn}>↑</button>}
-            {ab.lines.length > 1 && (
-              <button onClick={() => updateBox(ab.id, { lines: ab.lines.filter((_,i)=>i!==li) })} style={S.xBtn}>✕</button>
+          {/* Tab content */}
+          <div style={S.toolRow}>
+
+            {/* COLOR tab — only Black & White */}
+            {activeTab === 'color' && (
+              <div style={S.toolScroll}>
+                {[
+                  { c:'#FFFFFF', label:'White' },
+                  { c:'#000000', label:'Black' },
+                ].map(({ c, label }) => (
+                  <button key={c} onClick={() => updateBox(ab?.id, { textColor:c })}
+                    style={{
+                      ...S.colorItem,
+                      background: c,
+                      border: ab?.textColor===c ? '4px solid #6366f1' : '3px solid rgba(255,255,255,0.15)',
+                      boxShadow: ab?.textColor===c ? '0 0 0 2px #6366f1' : 'none',
+                    }}>
+                    <span style={{ color: c==='#FFFFFF'?'#000':'#fff', fontSize:10, fontWeight:700 }}>{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* FONT tab */}
+            {activeTab === 'font' && (
+              <div style={S.toolScroll}>
+                {FONTS.map(f => (
+                  <button key={f.value} onClick={() => updateBox(ab?.id, { font:f.value })}
+                    style={{
+                      ...S.fontItem,
+                      fontFamily: f.value,
+                      background: ab?.font===f.value ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.07)',
+                      border:     ab?.font===f.value ? '2px solid #818cf8' : '2px solid transparent',
+                      color:      ab?.font===f.value ? '#fff' : '#aaa',
+                    }}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* BG tab */}
+            {activeTab === 'bg' && (
+              <div style={S.toolScroll}>
+                {[
+                  { v:'none',  label:'None',  bg:'transparent', border:'rgba(255,255,255,0.2)', fg:'#888' },
+                  { v:'black', label:'Black', bg:'#000000',      border:'#333',                 fg:'#fff' },
+                  { v:'white', label:'White', bg:'#FFFFFF',      border:'#eee',                 fg:'#000' },
+                ].map(o => (
+                  <button key={o.v} onClick={() => updateBox(ab?.id, { bg:o.v })}
+                    style={{
+                      ...S.bgItem,
+                      background:   o.bg,
+                      color:        o.fg,
+                      border:       ab?.bg===o.v ? '3px solid #6366f1' : `2px solid ${o.border}`,
+                      boxShadow:    ab?.bg===o.v ? '0 0 0 2px #6366f1' : 'none',
+                    }}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ALIGN tab */}
+            {activeTab === 'align' && (
+              <div style={S.toolScroll}>
+                {[
+                  { v:'left',   label:'Left',   icon:'▤' },
+                  { v:'center', label:'Center',  icon:'▥' },
+                  { v:'right',  label:'Right',   icon:'▦' },
+                ].map(o => (
+                  <button key={o.v} onClick={() => updateBox(ab?.id, { align:o.v })}
+                    style={{
+                      ...S.alignItem,
+                      background: ab?.align===o.v ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.07)',
+                      border:     ab?.align===o.v ? '2px solid #818cf8' : '2px solid transparent',
+                      color:      ab?.align===o.v ? '#fff' : '#888',
+                    }}>
+                    <span style={{ fontSize:22 }}>{o.icon}</span>
+                    <span style={{ fontSize:11 }}>{o.label}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-        ))}
 
-        <div style={S.divider} />
-
-        {/* Size */}
-        <div style={S.secLabel}>SIZE — {ab?.fontSize ?? 80}PX</div>
-        <input type="range" min={30} max={200} value={ab?.fontSize ?? 80}
-          onChange={e => updateBox(ab.id, { fontSize: +e.target.value })} style={S.slider} />
-
-        <div style={S.divider} />
-
-        {/* Font */}
-        <div style={S.secLabel}>FONT</div>
-        <select value={ab?.font ?? 'Arial'} onChange={e => updateBox(ab.id, { font: e.target.value })} style={S.select}>
-          {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
-        </select>
-
-        {/* Color */}
-        <div style={{ ...S.secLabel, marginTop: 14 }}>COLOR</div>
-        <div style={S.colorRow}>
-          {COLORS.map(c => (
-            <button key={c} onClick={() => updateBox(ab.id, { textColor: c })}
-              style={{ ...S.colorDot, background: c, boxShadow: ab?.textColor === c ? `0 0 0 3px #fff, 0 0 0 5px ${c}` : 'none' }} />
-          ))}
-          <input type="color" value={ab?.textColor ?? '#FFFFFF'}
-            onChange={e => updateBox(ab.id, { textColor: e.target.value })} style={S.colorPicker} />
+          {/* Delete button */}
+          <button onClick={removeActive} style={S.deleteBtn}>Delete Text</button>
         </div>
+      )}
 
-        {/* Background */}
-        <div style={{ ...S.secLabel, marginTop: 14 }}>BACKGROUND</div>
-        <div style={S.bgRow}>
-          {[{v:'none',l:'None'},{v:'dark',l:'Dark'},{v:'black',l:'Black'},{v:'white',l:'White'}].map(o => (
-            <button key={o.v} onClick={() => updateBox(ab.id, { bg: o.v })}
-              style={ab?.bg === o.v ? S.bgOn : S.bgOff}>
-              {o.l}
-            </button>
-          ))}
-        </div>
-
-        <div style={S.divider} />
-
-        {/* Actions */}
-        <div style={S.actRow}>
-          <button onClick={() => removeBox(ab.id)} style={S.delBtn}>Delete Text</button>
-          <button onClick={onClose} style={S.doneBtn}>✓ Done</button>
-        </div>
-      </div>
+      {/* Tap-to-type hint */}
+      {!typing && (
+        <div style={S.tapHint}>Tap text to edit • Drag to move • Pinch to resize</div>
+      )}
     </div>
   );
 }
 
 const S = {
-  root:       { position:'fixed', inset:0, zIndex:9999, background:'#000', display:'flex', flexDirection:'column', fontFamily:'-apple-system,BlinkMacSystemFont,Arial,sans-serif', overflow:'hidden' },
+  root:        { position:'fixed', inset:0, zIndex:9999, background:'#000', display:'flex', flexDirection:'column', fontFamily:'-apple-system,BlinkMacSystemFont,Arial,sans-serif', overflow:'hidden' },
 
-  topBar:     { flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 18px', paddingTop:'calc(10px + env(safe-area-inset-top,0px))', background:'rgba(0,0,0,0.7)', backdropFilter:'blur(10px)' },
-  topBtn:     { background:'transparent', border:'none', color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer', padding:'6px 0' },
-  topHint:    { fontSize:12, color:'rgba(255,255,255,0.4)', textAlign:'center' },
+  hiddenInput: { position:'absolute', opacity:0, width:1, height:1, top:-100, left:-100, fontSize:16, resize:'none', border:'none', outline:'none', background:'transparent', color:'transparent' },
 
-  // Canvas wrapper: fills all space between topBar and bottom, maintains 9:16
-  canvasWrap: { flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', background:'#000' },
-  canvas:     { display:'block', width:'auto', height:'100%', maxWidth:'100%', maxHeight:'100%', touchAction:'none', objectFit:'contain' },
+  topBar:      { position:'absolute', left:0, right:0, zIndex:100, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', paddingTop:'calc(14px + env(safe-area-inset-top,0px))', background:'linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)', transition:'top 0.2s' },
+  topBtn:      { background:'rgba(255,255,255,0.12)', backdropFilter:'blur(10px)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer', borderRadius:20, padding:'8px 18px' },
+  topBtnAccent:{ background:'rgba(99,102,241,0.35)', backdropFilter:'blur(10px)', border:'1.5px solid rgba(99,102,241,0.7)', color:'#c7d2fe', fontSize:15, fontWeight:700, cursor:'pointer', borderRadius:20, padding:'8px 18px' },
+  topCenter:   { flex:1, display:'flex', justifyContent:'center' },
+  splitBtn:    { background:'rgba(255,255,255,0.15)', backdropFilter:'blur(10px)', border:'1.5px solid rgba(255,255,255,0.3)', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer', borderRadius:20, padding:'8px 22px', letterSpacing:'-0.2px' },
 
-  toggleBtn:  { position:'fixed', left:'50%', transform:'translateX(-50%)', zIndex:10001, background:'linear-gradient(135deg,#7c3aed,#a855f7)', border:'none', borderRadius:24, color:'#fff', padding:'12px 32px', fontSize:14, fontWeight:700, cursor:'pointer', transition:'bottom 0.25s ease', boxShadow:'0 4px 20px rgba(124,58,237,0.5)', whiteSpace:'nowrap' },
+  canvasWrap:  { position:'absolute', top:0, left:0, right:0, display:'flex', alignItems:'center', justifyContent:'center', background:'#000', transition:'bottom 0.2s' },
+  canvas:      { display:'block', width:'auto', height:'100%', maxWidth:'100%', maxHeight:'100%', touchAction:'none' },
 
-  panel:      { position:'fixed', bottom:0, left:0, right:0, height:'52vh', background:'rgba(10,10,20,0.97)', backdropFilter:'blur(30px)', borderTopLeftRadius:22, borderTopRightRadius:22, padding:'12px 18px 32px', overflowY:'auto', transition:'transform 0.28s cubic-bezier(0.4,0,0.2,1)', zIndex:10000 },
-  handle:     { width:36, height:4, background:'rgba(255,255,255,0.2)', borderRadius:4, margin:'0 auto 16px' },
+  tapHint:     { position:'absolute', bottom:92, left:0, right:0, textAlign:'center', color:'rgba(255,255,255,0.35)', fontSize:12, fontWeight:500, pointerEvents:'none', letterSpacing:'0.01em' },
 
-  tabs:       { display:'flex', gap:8, marginBottom:16 },
-  tab:        { padding:'8px 16px', borderRadius:20, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'#888', fontSize:13, fontWeight:600, cursor:'pointer' },
-  tabOn:      { padding:'8px 16px', borderRadius:20, border:'none', background:'#7c3aed', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' },
+  bottomBar:   { position:'absolute', bottom:0, left:0, right:0, background:'rgba(8,8,16,0.96)', backdropFilter:'blur(30px)', borderTop:'1px solid rgba(255,255,255,0.07)', paddingBottom:'env(safe-area-inset-bottom,0px)' },
 
-  secLabel:   { fontSize:10, fontWeight:700, color:'#555', letterSpacing:'0.08em', marginBottom:8 },
-  divider:    { height:1, background:'rgba(255,255,255,0.07)', margin:'14px 0' },
+  tabRow:      { display:'flex', borderBottom:'1px solid rgba(255,255,255,0.06)' },
+  tabBtn:      { flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:2, padding:'10px 0 8px', background:'transparent', border:'none', cursor:'pointer', transition:'background 0.15s' },
+  tabBtnOn:    { background:'rgba(99,102,241,0.12)', borderBottom:'2px solid #6366f1' },
+  tabIcon:     { fontSize:18, lineHeight:1 },
+  tabLabel:    { fontSize:10, fontWeight:600, color:'#666', letterSpacing:'0.04em', textTransform:'uppercase' },
 
-  lineRow:    { display:'flex', gap:6, marginBottom:8, alignItems:'center' },
-  lineInput:  { flex:1, padding:'10px 12px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'#fff', fontSize:15, fontFamily:'inherit', outline:'none' },
-  splitBtn:   { padding:'9px 12px', borderRadius:8, border:'none', background:'rgba(99,102,241,0.2)', color:'#818cf8', fontSize:14, fontWeight:700, cursor:'pointer', flexShrink:0 },
-  joinBtn:    { padding:'9px 12px', borderRadius:8, border:'none', background:'rgba(245,158,11,0.15)', color:'#fbbf24', fontSize:14, fontWeight:700, cursor:'pointer', flexShrink:0 },
-  xBtn:       { padding:'9px 10px', borderRadius:8, border:'none', background:'rgba(239,68,68,0.15)', color:'#f87171', fontSize:14, cursor:'pointer', flexShrink:0 },
+  toolRow:     { minHeight:90, padding:'12px 16px' },
+  toolScroll:  { display:'flex', gap:12, overflowX:'auto', paddingBottom:4, alignItems:'center' },
 
-  slider:     { width:'100%', accentColor:'#7c3aed', cursor:'pointer', display:'block' },
-  select:     { width:'100%', padding:'11px 12px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'#fff', fontSize:15, cursor:'pointer', outline:'none', fontFamily:'inherit' },
+  colorItem:   { width:56, height:56, borderRadius:16, cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', transition:'border 0.15s, box-shadow 0.15s' },
+  fontItem:    { padding:'10px 18px', borderRadius:12, cursor:'pointer', fontSize:15, fontWeight:600, flexShrink:0, whiteSpace:'nowrap', transition:'all 0.15s' },
+  bgItem:      { width:72, height:56, borderRadius:14, cursor:'pointer', fontSize:14, fontWeight:700, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s' },
+  alignItem:   { width:72, height:60, borderRadius:14, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, flexShrink:0, transition:'all 0.15s' },
 
-  colorRow:   { display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' },
-  colorDot:   { width:34, height:34, borderRadius:'50%', border:'none', cursor:'pointer', flexShrink:0, padding:0, transition:'box-shadow 0.15s' },
-  colorPicker:{ width:42, height:34, border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, cursor:'pointer', padding:2, background:'rgba(255,255,255,0.06)' },
-
-  bgRow:      { display:'flex', gap:8 },
-  bgOff:      { flex:1, padding:'10px 0', borderRadius:10, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'#888', fontSize:13, fontWeight:600, cursor:'pointer', textAlign:'center' },
-  bgOn:       { flex:1, padding:'10px 0', borderRadius:10, border:'none', background:'#7c3aed', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', textAlign:'center' },
-
-  actRow:     { display:'flex', gap:10, marginTop:4 },
-  delBtn:     { flex:1, padding:'13px', borderRadius:12, border:'none', background:'rgba(239,68,68,0.12)', color:'#f87171', fontSize:14, fontWeight:600, cursor:'pointer' },
-  doneBtn:    { flex:2, padding:'13px', borderRadius:12, border:'none', background:'linear-gradient(135deg,#7c3aed,#a855f7)', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' },
+  deleteBtn:   { width:'calc(100% - 32px)', margin:'0 16px 12px', padding:'12px', borderRadius:12, border:'none', background:'rgba(239,68,68,0.1)', color:'#f87171', fontSize:14, fontWeight:700, cursor:'pointer', letterSpacing:'-0.2px' },
 };
