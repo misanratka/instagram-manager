@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
-# cache-bust: 2026-05-22-v3
+# cache-bust: 2026-05-22-v4
 COPY frontend/ ./
 RUN npm run build
  
