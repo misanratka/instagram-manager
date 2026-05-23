@@ -103,6 +103,29 @@ export default function NewPost() {
     }
   }
 
+  // Auto-called when boost quality is toggled
+  async function handleEnhanceAuto(shouldEnhance) {
+    if (!result?.postId) return;
+    setEnhancing(true);
+    setError('');
+    try {
+      const res = await api.enhanceVideo(result.postId, {
+        trimStart: trimStart || null,
+        trimEnd:   trimEnd   || null,
+        brightness, contrast, saturation,
+        burnSubs,
+        enhance: shouldEnhance,
+        textOverlays: textBoxes.filter(b => b.text && b.text.trim()),
+      });
+      setEnhancedUrl(shouldEnhance ? res.enhancedVideoUrl : null);
+    } catch (err) {
+      setError(err.message || 'Boost failed');
+      setEnhance(false);
+    } finally {
+      setEnhancing(false);
+    }
+  }
+
   async function handleEnhance() {
     const hasText  = textBoxes.some(b => b.text);
     const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
@@ -287,17 +310,32 @@ export default function NewPost() {
                       }} />
                     );
                   }
-                  const sizePx = (box.fontSize || 28) * 0.65;
+                  // Scale: our canvas is 1080px wide internally, preview container varies
+                  // Use xPct/yPct for position, scale fontSize proportionally
+                  const sizePx = (box.fontSize || 72) * 0.33;
+                  const bg = box.bg === 'black' ? '#000000'
+                           : box.bg === 'white' ? '#FFFFFF'
+                           : 'transparent';
+                  const fg = box.bg === 'white' ? '#000000' : (box.textColor || box.colorHex || '#FFFFFF');
                   return (
                     <div key={box.id} style={{
-                      position: 'absolute', left: `${box.xPct}%`, top: `${box.yPct}%`,
-                      transform: 'translate(-50%,-50%)', fontSize: sizePx, fontWeight: 'bold',
-                      fontFamily: 'sans-serif', pointerEvents: 'none', borderRadius: 8, padding: '4px 8px',
-                      width: `${Math.max(18, (box.widthPct || 80) * 0.78)}%`,
-                      background: box.bg === 'none' ? 'transparent' : getBackgroundFill(box.bg),
-                      color: getBoxTextColor(box),
-                      textShadow: (!isBlack && !isWhite) ? '1px 1px 3px rgba(0,0,0,1)' : 'none',
-                      whiteSpace: 'pre-wrap', textAlign: box.align || 'center', lineHeight: 1.18,
+                      position: 'absolute',
+                      left: `${box.xPct}%`,
+                      top: `${box.yPct}%`,
+                      transform: 'translate(-50%,-50%)',
+                      fontSize: sizePx,
+                      fontWeight: '700',
+                      fontFamily: box.font || 'Arial',
+                      pointerEvents: 'none',
+                      borderRadius: 6,
+                      padding: box.bg !== 'none' ? '3px 10px' : '0',
+                      background: bg,
+                      color: fg,
+                      textShadow: 'none',
+                      whiteSpace: 'pre',
+                      textAlign: box.align || 'center',
+                      lineHeight: 1.35,
+                      maxWidth: '90%',
                     }}>
                       {box.text}
                     </div>
@@ -359,17 +397,25 @@ export default function NewPost() {
                     </div>
                   </div>
                 )}
-                <Toggle on={enhance} onChange={setEnhance} label="Boost Quality" desc="Sharpen + enhance brightness, contrast & color" />
+                <Toggle on={enhance} onChange={(val) => {
+                  setEnhance(val);
+                  if (val) {
+                    // Auto-render when boost is turned ON
+                    setTimeout(() => handleEnhanceAuto(val), 100);
+                  } else {
+                    // Revert to original when turned OFF
+                    setEnhancedUrl(null);
+                  }
+                }} label="Boost Quality" desc="Toggle ON to enhance • toggle OFF to revert" />
+                {enhancing && (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, color:'#a78bfa', fontSize:13 }}>
+                    <span style={s.miniSpinner} /> Boosting quality…
+                  </div>
+                )}
               </div>
             </Section>
 
-            <button
-              onClick={handleEnhance}
-              disabled={enhancing}
-              style={{ ...s.btn, ...s.btnSecondary, marginBottom: 20, opacity: enhancing ? 0.5 : 1 }}
-            >
-              {enhancing ? <><span style={s.miniSpinner} /> Rendering…</> : 'Apply Edits & Render Video'}
-            </button>
+            {/* Render button removed — boost quality now auto-renders when toggled */}
           </>
         )}
 
