@@ -1,24 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 
-const STATUS_COLOR = {
-  draft:      '#555',
-  publishing: '#7b6fff',
-  scheduled:  '#fcb045',
-  posted:     '#52c41a',
-  failed:     '#ff7070',
+const STATUS = {
+  draft:      { color: '#6B7280', bg: 'rgba(107,114,128,0.1)', label: 'Draft' },
+  publishing: { color: '#a855f7', bg: 'rgba(168,85,247,0.1)', label: 'Publishing' },
+  scheduled:  { color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', label: 'Scheduled' },
+  posted:     { color: '#10b981', bg: 'rgba(16,185,129,0.1)', label: 'Posted' },
+  failed:     { color: '#ef4444', bg: 'rgba(239,68,68,0.1)', label: 'Failed' },
 };
 
-const ALL_STATUSES = ['all', 'draft', 'publishing', 'scheduled', 'posted', 'failed'];
+const FILTERS = ['all', 'draft', 'publishing', 'scheduled', 'posted', 'failed'];
 
 export default function PostHistory() {
-  const [posts, setPosts]     = useState([]);
+  const [posts, setPosts]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState('all');
 
   useEffect(() => { load(); }, []);
 
-  // Auto-refresh every 5s while any post is publishing
   useEffect(() => {
     const hasPublishing = posts.some(p => p.status === 'publishing');
     if (!hasPublishing) return;
@@ -34,7 +33,7 @@ export default function PostHistory() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('Delete this post record?')) return;
+    if (!window.confirm('Delete this post?')) return;
     await api.deletePost(id).catch(() => {});
     await load();
   }
@@ -43,77 +42,89 @@ export default function PostHistory() {
 
   return (
     <div>
-      <div style={s.hdr}>
-        <h2 style={s.h2}>Posts</h2>
-        <div style={s.filters}>
-          {ALL_STATUSES.map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{ ...s.filterBtn, ...(filter === f ? s.filterActive : {}) }}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-        </div>
+      {/* Page title */}
+      <div style={s.pageHead}>
+        <h1 style={s.pageTitle}>Your Posts</h1>
+        <span style={s.count}>{posts.length}</span>
       </div>
 
-      {loading && <div style={s.center}>Loading…</div>}
+      {/* Filter pills */}
+      <div style={s.filters}>
+        {FILTERS.map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ ...s.pill, ...(filter === f ? s.pillOn : {}) }}>
+            {f === 'all' ? 'All' : STATUS[f]?.label ?? f}
+          </button>
+        ))}
+      </div>
 
-      {!loading && visible.length === 0 && (
-        <div style={s.empty}>
-          <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
-          <div style={{ color: '#555' }}>No {filter !== 'all' ? filter : ''} posts yet.</div>
+      {/* Loading */}
+      {loading && (
+        <div style={s.center}>
+          <div style={s.spinner} />
+          <span style={{ color: '#555', fontSize: 13 }}>Loading posts…</span>
         </div>
       )}
 
+      {/* Empty */}
+      {!loading && visible.length === 0 && (
+        <div style={s.empty}>
+          <div style={s.emptyIcon}>📋</div>
+          <p style={s.emptyText}>No {filter !== 'all' ? filter : ''} posts yet</p>
+          <p style={s.emptyHint}>Create your first post from the Create tab</p>
+        </div>
+      )}
+
+      {/* Post cards */}
       <div style={s.list}>
         {visible.map(post => {
+          const st = STATUS[post.status] ?? STATUS.draft;
           const caption = post.final_caption || post.generated_caption || '';
           return (
             <div key={post.id} style={s.card}>
-              <div style={s.cardBody}>
-                <div style={s.meta}>
-                  <span style={{ ...s.status, color: STATUS_COLOR[post.status] || '#555' }}>
-                    {post.status === 'publishing' ? '⟳ ' : '● '}{post.status}
-                  </span>
-                  {post.username && (
-                    <span style={s.acct}>@{post.username}</span>
-                  )}
-                  <span style={s.date}>{new Date(post.created_at).toLocaleDateString()}</span>
-                  {post.ig_media_id && (
-                    <span style={s.mediaId}>ID: {post.ig_media_id}</span>
-                  )}
-                </div>
-
-                {caption && (
-                  <div style={s.caption}>
-                    {caption.length > 140 ? caption.substring(0, 140) + '…' : caption}
-                  </div>
-                )}
-
-                {post.hook_text && (
-                  <div style={s.hook}>Hook: "{post.hook_text}"</div>
-                )}
-
-                {post.scheduled_at && post.status === 'scheduled' && (
-                  <div style={s.scheduled}>
-                    Scheduled: {new Date(post.scheduled_at).toLocaleString()}
-                  </div>
-                )}
-
-                {post.posted_at && (
-                  <div style={s.postedAt}>
-                    Posted: {new Date(post.posted_at).toLocaleString()}
-                  </div>
-                )}
-
-                {post.error_message && (
-                  <div style={s.errorMsg}>{post.error_message}</div>
-                )}
+              {/* Status bar */}
+              <div style={s.cardTop}>
+                <span style={{ ...s.statusBadge, color: st.color, background: st.bg }}>
+                  {post.status === 'publishing' ? '⟳ ' : '● '}{st.label}
+                </span>
+                {post.username && <span style={s.handle}>@{post.username}</span>}
+                <span style={s.date}>{new Date(post.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                <button onClick={() => handleDelete(post.id)} style={s.delBtn}>✕</button>
               </div>
 
-              <button onClick={() => handleDelete(post.id)} style={s.delBtn}>Delete</button>
+              {/* Caption */}
+              {caption && (
+                <p style={s.caption}>
+                  {caption.length > 160 ? caption.slice(0, 160) + '…' : caption}
+                </p>
+              )}
+
+              {/* Hook */}
+              {post.hook_text && (
+                <div style={s.hookRow}>
+                  <span style={s.hookLabel}>Hook</span>
+                  <span style={s.hookText}>"{post.hook_text}"</span>
+                </div>
+              )}
+
+              {/* Scheduled */}
+              {post.scheduled_at && post.status === 'scheduled' && (
+                <div style={{ ...s.metaRow, color: '#f59e0b' }}>
+                  🕐 {new Date(post.scheduled_at).toLocaleString()}
+                </div>
+              )}
+
+              {/* Posted */}
+              {post.posted_at && (
+                <div style={{ ...s.metaRow, color: '#10b981' }}>
+                  ✓ Posted {new Date(post.posted_at).toLocaleString()}
+                </div>
+              )}
+
+              {/* Error */}
+              {post.error_message && (
+                <div style={s.errBox}>{post.error_message}</div>
+              )}
             </div>
           );
         })}
@@ -123,25 +134,29 @@ export default function PostHistory() {
 }
 
 const s = {
-  hdr:        { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 10 },
-  h2:         { fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 },
-  filters:    { display: 'flex', gap: 6, flexWrap: 'wrap' },
-  filterBtn:  { padding: '5px 12px', background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#555', cursor: 'pointer', fontSize: 12 },
-  filterActive:{ background: '#1a1a1a', borderColor: '#444', color: '#fff' },
-  center:     { textAlign: 'center', padding: '40px 0', color: '#555' },
-  empty:      { textAlign: 'center', padding: '60px 0' },
-  list:       { display: 'flex', flexDirection: 'column', gap: 8 },
-  card:       { background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 10, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 },
-  cardBody:   { flex: 1, minWidth: 0 },
-  meta:       { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 },
-  status:     { fontSize: 12, fontWeight: 700, textTransform: 'capitalize' },
-  acct:       { fontSize: 12, color: '#888' },
-  date:       { fontSize: 11, color: '#444' },
-  mediaId:    { fontSize: 11, color: '#333', fontFamily: 'monospace' },
-  caption:    { fontSize: 13, color: '#aaa', lineHeight: 1.5, marginBottom: 4 },
-  hook:       { fontSize: 11, color: '#666', fontStyle: 'italic', marginBottom: 4 },
-  scheduled:  { fontSize: 12, color: '#fcb045', marginTop: 4 },
-  postedAt:   { fontSize: 12, color: '#52c41a', marginTop: 4 },
-  errorMsg:   { fontSize: 12, color: '#ff7070', marginTop: 4, background: '#1a0808', padding: '4px 8px', borderRadius: 4 },
-  delBtn:     { padding: '7px 14px', background: '#1a0d0d', border: '1px solid #3a1a1a', borderRadius: 6, color: '#ff7070', cursor: 'pointer', fontSize: 12, flexShrink: 0 },
+  pageHead:    { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
+  pageTitle:   { fontSize: 26, fontWeight: 700, color: '#fff', margin: 0, letterSpacing: '-0.5px' },
+  count:       { background: 'rgba(255,255,255,0.06)', color: '#777', fontSize: 13, fontWeight: 600, borderRadius: 20, padding: '3px 10px' },
+  filters:     { display: 'flex', gap: 8, marginBottom: 24, overflowX: 'auto', paddingBottom: 4 },
+  pill:        { padding: '7px 16px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#666', cursor: 'pointer', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 },
+  pillOn:      { background: 'rgba(168,85,247,0.15)', borderColor: 'rgba(168,85,247,0.4)', color: '#c084fc' },
+  center:      { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '60px 0' },
+  spinner:     { width: 28, height: 28, border: '2px solid rgba(255,255,255,0.08)', borderTop: '2px solid #a855f7', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
+  empty:       { textAlign: 'center', padding: '70px 20px' },
+  emptyIcon:   { fontSize: 48, marginBottom: 16 },
+  emptyText:   { color: '#fff', fontSize: 17, fontWeight: 600, margin: '0 0 6px' },
+  emptyHint:   { color: '#555', fontSize: 14, margin: 0 },
+  list:        { display: 'flex', flexDirection: 'column', gap: 12 },
+  card:        { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '16px', backdropFilter: 'blur(10px)' },
+  cardTop:     { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  statusBadge: { fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '4px 10px' },
+  handle:      { fontSize: 12, color: '#777', fontWeight: 500 },
+  date:        { fontSize: 11, color: '#444', marginLeft: 'auto' },
+  delBtn:      { background: 'transparent', border: 'none', color: '#444', cursor: 'pointer', fontSize: 16, padding: '2px 6px', lineHeight: 1, borderRadius: 6, ':hover': { color: '#ef4444' } },
+  caption:     { fontSize: 14, color: '#aaa', lineHeight: 1.6, margin: '0 0 8px' },
+  hookRow:     { display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 6 },
+  hookLabel:   { fontSize: 10, fontWeight: 700, color: '#a855f7', background: 'rgba(168,85,247,0.1)', padding: '2px 7px', borderRadius: 10, flexShrink: 0 },
+  hookText:    { fontSize: 13, color: '#888', fontStyle: 'italic' },
+  metaRow:     { fontSize: 12, marginTop: 6 },
+  errBox:      { marginTop: 8, padding: '8px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 8, color: '#f87171', fontSize: 12 },
 };
