@@ -150,6 +150,7 @@ function buildSingleLine(overlay, yOffsetPx) {
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
     if (align === 'left')       xExpr = `(w*${xp})`;
     else if (align === 'right') xExpr = `(w*${xp})-(text_w)`;
+    else if (align === 'left')  xExpr = `(w*${xp})`;
     else                        xExpr = `(w*${xp})-(text_w/2)`;
     const yBase = `(h*${yp})`;
     yExpr = yOffsetPx === 0
@@ -169,7 +170,8 @@ function buildSingleLine(overlay, yOffsetPx) {
     fontcolor = '#111111';
     boxPart = ':box=1:boxcolor=white:boxborderw=10';
   } else {
-    fontcolor = overlay.colorHex ? overlay.colorHex.replace('#', '0x') : (overlay.color || 'white');
+    const rawColor = overlay.textColor || overlay.colorHex || overlay.color;
+    fontcolor = rawColor ? rawColor.replace('#', '0x') : 'white';
     boxPart = ':borderw=2:bordercolor=black@0.8';
   }
 
@@ -185,7 +187,9 @@ function buildDrawtext(overlay) {
   if (overlay.bg !== 'none' && (!overlay.text || overlay.text.trim() === '')) {
     return buildCoverBox(overlay);
   }
-  if (!overlay.text) return null;
+  // Never burn empty or placeholder text
+  if (!overlay.text || !overlay.text.trim()) return null;
+  if (overlay.text.trim() === 'Tap to type') return null;
 
   const lines = overlay.text.split('\n');
   const size  = overlay.fontSize || SIZES[overlay.size] || 44;
