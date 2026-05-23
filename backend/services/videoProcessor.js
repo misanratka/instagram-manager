@@ -393,13 +393,15 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     if (f) vFilters.push(f);
   }
 
-  const crf = preset?.crf || (enhance ? '16' : '23');
+  const crf = preset?.crf || (enhance ? '10' : '23');
   const args = [...inputArgs];
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
   const isEnhanced = !!(preset || enhance);
   args.push('-c:v', 'libx264', '-preset', isEnhanced ? 'slow' : 'fast', '-crf', crf);
+  // Much stronger bitrate when quality boost is enabled
+  if (enhance) args.push('-b:v', '8000k');
   if (isEnhanced) {
     args.push('-profile:v', 'high', '-level:v', '4.2');
     args.push('-maxrate', '25M', '-bufsize', '50M');
