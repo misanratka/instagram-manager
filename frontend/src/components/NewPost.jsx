@@ -109,13 +109,15 @@ export default function NewPost() {
     setEnhancing(true);
     setError('');
     try {
+      const realText = textBoxes.filter(b => b.text && b.text.trim() && b.text !== 'Tap to type');
       const res = await api.enhanceVideo(result.postId, {
-        trimStart: trimStart || null,
-        trimEnd:   trimEnd   || null,
-        brightness, contrast, saturation,
+        enhance:      shouldEnhance,
         burnSubs,
-        enhance: shouldEnhance,
-        textOverlays: textBoxes.filter(b => b.text && b.text.trim()),
+        textOverlays: realText,
+        trim:         { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
+        adjustments:  { brightness, contrast, saturation },
+        subtitleStyle,
+        segments,
       });
       setEnhancedUrl(shouldEnhance ? res.enhancedVideoUrl : null);
     } catch (err) {
@@ -161,6 +163,28 @@ export default function NewPost() {
     setPosting(true); setError(''); setSuccess('');
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
+      const realText = textBoxes.filter(b => b.text && b.text.trim() && b.text !== 'Tap to type');
+      const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
+      const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
+      const needsRender = realText.length > 0 || hasTrim || hasAdj || burnSubs || enhance;
+      if (needsRender) {
+        setSuccess('Processing video…');
+        try {
+          const res = await api.enhanceVideo(result.postId, {
+            enhance, burnSubs,
+            textOverlays:  realText,
+            trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
+            adjustments:   { brightness, contrast, saturation },
+            subtitleStyle, segments,
+          });
+          setEnhancedUrl(res.enhancedVideoUrl);
+        } catch (renderErr) {
+          setError('Failed to process video: ' + (renderErr.message || 'Unknown error'));
+          setPosting(false);
+          return;
+        }
+      }
+      setSuccess('Publishing to Instagram…');
       await api.publishPost(result.postId, { account_id: accountId, caption });
       setSuccess('Publishing to Instagram. Waiting for final status…');
 
@@ -199,6 +223,27 @@ export default function NewPost() {
     setPosting(true); setError('');
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
+      const realText = textBoxes.filter(b => b.text && b.text.trim() && b.text !== 'Tap to type');
+      const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
+      const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
+      const needsRender = realText.length > 0 || hasTrim || hasAdj || burnSubs || enhance;
+      if (needsRender) {
+        setSuccess('Processing video…');
+        try {
+          const res = await api.enhanceVideo(result.postId, {
+            enhance, burnSubs,
+            textOverlays:  realText,
+            trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
+            adjustments:   { brightness, contrast, saturation },
+            subtitleStyle, segments,
+          });
+          setEnhancedUrl(res.enhancedVideoUrl);
+        } catch (renderErr) {
+          setError('Failed to process video: ' + (renderErr.message || 'Unknown error'));
+          setPosting(false);
+          return;
+        }
+      }
       await api.schedulePost(result.postId, {
         scheduled_at: new Date(scheduleTime).toISOString(),
         account_id: accountId, caption
