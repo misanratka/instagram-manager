@@ -16,8 +16,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
 
   const makeBox = (raw) => ({
     id:        raw?.id        ?? Date.now(),
-    lines:     raw?.text      ? raw.text.split('\n') : ['Tap to type'],
-    fontSize:  raw?.fontSize  ?? 90,
+    lines:     (raw?.text != null) ? raw.text.split('\n') : [''],
+    fontSize:  raw?.fontSize  ?? 72,  // 72px in 1080-wide space ≈ good mobile size
     posX:      raw?.posX      ?? (raw?.xPct != null ? Math.round((raw.xPct/100)*CW) : CW/2),
     posY:      raw?.posY      ?? (raw?.yPct != null ? Math.round((raw.yPct/100)*CH) : CH*0.45),
     font:      raw?.font      ?? 'Arial',
@@ -75,7 +75,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       xPct: (b.posX/CW)*100, yPct: (b.posY/CH)*100,
       bg: b.bg, align: b.align ?? 'center', widthPct: 80,
     }));
-    onChange(out.filter(b => b.text.trim() && b.text !== 'Tap to type'));
+    // Only emit boxes that have real content
+    const real = out.filter(b => {
+      const t = b.text.trim();
+      return t && t !== 'Tap to type' && t.length > 0;
+    });
+    onChange(real);
   }, [boxes]); // eslint-disable-line
 
   const updateBox = useCallback((id, patch) => {
@@ -87,7 +92,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   // ── Text helpers ──────────────────────────────────────────────────────────
   const addBox = () => {
     const id = Date.now();
-    setBoxes(prev => [...prev, makeBox({ id, posX: CW/2, posY: CH*0.45 })]);
+    setBoxes(prev => [...prev, makeBox({ id, text: '', posX: CW/2, posY: CH*0.45 })]);
     setActiveId(id);
     setTimeout(() => { setTyping(true); inputRef.current?.focus(); }, 50);
   };
@@ -153,27 +158,42 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       const totalH   = b.lines.length * lineH;
       const startY   = b.posY - totalH/2 + lineH/2;
 
+      const align = b.align || 'center';
       ctx.font         = `700 ${b.fontSize}px "${b.font}", Arial`;
-      ctx.textAlign    = 'center';
+      ctx.textAlign    = align;
       ctx.textBaseline = 'middle';
 
       b.lines.forEach((line, i) => {
-        const ly  = startY + i * lineH;
-        const tw  = ctx.measureText(line).width;
-        const pad = 20;
+        const ly   = startY + i * lineH;
+        const tw   = ctx.measureText(line).width;
+        const pad  = 20;
+        // x position based on alignment
+        const drawX = align === 'left'   ? b.posX - tw/2 :
+                      align === 'right'  ? b.posX + tw/2 :
+                                           b.posX;
+        const bgX   = align === 'left'   ? b.posX - tw/2 - pad :
+                      align === 'right'  ? b.posX + tw/2 - tw - pad :
+                                           b.posX - tw/2 - pad;
 
         // Hard solid background
         if (b.bg === 'black') {
           ctx.fillStyle = '#000000';
-          ctx.beginPath(); ctx.roundRect(b.posX-tw/2-pad, ly-b.fontSize/2-12, tw+pad*2, b.fontSize+24, 8); ctx.fill();
+          ctx.beginPath(); ctx.roundRect(bgX, ly-b.fontSize/2-12, tw+pad*2, b.fontSize+24, 8); ctx.fill();
         } else if (b.bg === 'white') {
           ctx.fillStyle = '#FFFFFF';
-          ctx.beginPath(); ctx.roundRect(b.posX-tw/2-pad, ly-b.fontSize/2-12, tw+pad*2, b.fontSize+24, 8); ctx.fill();
+          ctx.beginPath(); ctx.roundRect(bgX, ly-b.fontSize/2-12, tw+pad*2, b.fontSize+24, 8); ctx.fill();
         }
 
-        // Flat text — ZERO shadow
-        ctx.fillStyle = b.textColor;
-        ctx.fillText(line, b.posX, ly);
+        // Show placeholder if empty
+        if (!line.trim()) {
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.font = `400 ${b.fontSize * 0.7}px Arial`;
+          ctx.fillText('Tap to type', drawX, ly);
+          ctx.font = `700 ${b.fontSize}px "${b.font}", Arial`;
+        } else {
+          ctx.fillStyle = b.textColor;
+          ctx.fillText(line, drawX, ly);
+        }
       });
 
       // Selection ring
@@ -297,8 +317,26 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         onChange={handleInputChange}
         style={S.hiddenInput}
         enterKeyHint="done"
-        onBlur={() => setTyping(false)}
-        onFocus={() => setTyping(true)}
+        onBlur={() => {
+          setTyping(false);
+          // Remove empty lines at end
+          if (ab) {
+            const cleaned = ab.lines.map(l => l.trimEnd()).filter((l,i,arr) => l || i < arr.length-1);
+            if (cleaned.join('') === '') {
+              // All empty — reset to single empty
+              updateBox(ab.id, { lines: [''] });
+            } else {
+              updateBox(ab.id, { lines: cleaned });
+            }
+          }
+        }}
+        onFocus={() => {
+          setTyping(true);
+          // If box only has empty/placeholder, clear it for fresh typing
+          if (ab && ab.lines.join('').trim() === '') {
+            updateBox(ab.id, { lines: [''] });
+          }
+        }}
       />
 
       {/* ── TOP BAR ── */}
