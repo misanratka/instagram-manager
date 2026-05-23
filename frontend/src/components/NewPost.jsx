@@ -268,7 +268,7 @@ export default function NewPost() {
             <Section label="Video">
               <div style={{ position: 'relative', background: '#000', borderRadius: 8, overflow: 'hidden' }}>
                 {previewUrl
-                  ? <video src={previewUrl} controls style={{ width: '100%', display: 'block', maxHeight: 380 }} />
+                  ? <video src={previewUrl} controls style={{ width: '100%', display: 'block', maxHeight: 380, filter: `brightness(${1 + brightness}) contrast(${contrast}) saturate(${saturation})` }} />
                   : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: 13 }}>No video preview</div>
                 }
                 {textBoxes.map(box => {
@@ -310,25 +310,6 @@ export default function NewPost() {
               {enhancedUrl && <div style={s.badge}>✓ Rendered</div>}
             </Section>
 
-            <Section label="Crop / Aspect Ratio">
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {CROP_RATIOS.map(r => (
-                  <button
-                    key={r.value}
-                    onClick={() => setCropRatio(r.value)}
-                    style={{
-                      ...s.cropBtn,
-                      background:   cropRatio === r.value ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#111',
-                      color:        cropRatio === r.value ? '#fff' : '#888',
-                      border:       cropRatio === r.value ? 'none' : '1px solid #2a2a2a',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{r.label}</div>
-                    {r.desc && <div style={{ fontSize: 10, opacity: 0.75 }}>{r.desc}</div>}
-                  </button>
-                ))}
-              </div>
-            </Section>
 
             <Section label="Adjustments">
               <div style={s.editGrid}>
@@ -347,21 +328,6 @@ export default function NewPost() {
                   </div>
                 </div>
                 <div>
-                  <div style={s.editLabel}>Playback Speed</div>
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {SPEEDS.map(sp => (
-                      <button key={sp.value} onClick={() => setSpeed(sp.value)} style={{
-                        padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                        background: speed === sp.value ? 'linear-gradient(135deg,#833ab4,#fd1d1d)' : '#111',
-                        color: speed === sp.value ? '#fff' : '#777',
-                        border: speed === sp.value ? 'none' : '1px solid #252525',
-                      }}>
-                        {sp.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
               <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5}  step={0.05} def={0} onChange={setBrightness} format={v => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%'} />
               <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0}  step={0.05} def={1} onChange={setContrast}   format={v => v.toFixed(1) + '×'} />
               <SliderRow label="Saturation" value={saturation} min={0}    max={2.0}  step={0.05} def={1} onChange={setSaturation} format={v => v.toFixed(1) + '×'} />
