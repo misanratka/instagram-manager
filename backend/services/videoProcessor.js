@@ -150,7 +150,6 @@ function buildSingleLine(overlay, yOffsetPx) {
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
     if (align === 'left')       xExpr = `(w*${xp})`;
     else if (align === 'right') xExpr = `(w*${xp})-(text_w)`;
-    else if (align === 'left')  xExpr = `(w*${xp})`;
     else                        xExpr = `(w*${xp})-(text_w/2)`;
     const yBase = `(h*${yp})`;
     yExpr = yOffsetPx === 0
@@ -172,10 +171,11 @@ function buildSingleLine(overlay, yOffsetPx) {
   } else {
     const rawColor = overlay.textColor || overlay.colorHex || overlay.color;
     fontcolor = rawColor ? rawColor.replace('#', '0x') : 'white';
-    boxPart = ':borderw=2:bordercolor=black@0.8';
+    boxPart = '';
   }
 
-  let filter = `drawtext=${FONT_ATTR}:text='${escaped}':fontsize=${size}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
+  const fontSizePct = overlay.fontSizePct || (size / 1080);
+  let filter = `drawtext=${FONT_ATTR}:text='${escaped}':fontsize=w*${fontSizePct.toFixed(6)}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
   if (overlay.startTime > 0 || overlay.endTime > 0) {
     filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
   }
@@ -293,11 +293,11 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // 3. Quality preset pipeline
   const PRESETS = {
-    instagram: { dL:4,  dC:3,  dT:6,  sL:1.6, sC:0.5,  br:0.06, ct:1.18, sat:1.45, gm:1.06, cas:0.75, crf:'14', curves:true,  deband:true,  nlmeans:true  },
-    cinematic: { dL:5,  dC:4,  dT:7,  sL:0.9, sC:0.25, br:0.00, ct:1.30, sat:0.85, gm:1.12, cas:0.5,  crf:'13', curves:true,  deband:true,  nlmeans:true  },
-    crisp:     { dL:3,  dC:2,  dT:4,  sL:2.5, sC:0.7,  br:0.03, ct:1.20, sat:1.15, gm:0.93, cas:1.0,  crf:'12', curves:false, deband:true,  nlmeans:false },
-    lowlight:  { dL:8,  dC:6,  dT:10, sL:1.0, sC:0.3,  br:0.18, ct:1.35, sat:1.10, gm:1.50, cas:0.6,  crf:'14', curves:true,  deband:true,  nlmeans:true  },
-    vivid:     { dL:3,  dC:2,  dT:4,  sL:1.5, sC:0.5,  br:0.08, ct:1.22, sat:2.00, gm:0.93, cas:0.8,  crf:'13', curves:true,  deband:false, nlmeans:false },
+    instagram: { dL:2,  dC:1,  dT:3,  sL:1.4, sC:0.4,  br:0.06, ct:1.15, sat:1.35, gm:1.04, cas:0.6,  crf:'18', curves:true,  deband:false, nlmeans:false },
+    cinematic: { dL:3,  dC:2,  dT:4,  sL:0.8, sC:0.2,  br:0.00, ct:1.25, sat:0.85, gm:1.10, cas:0.4,  crf:'18', curves:true,  deband:false, nlmeans:false },
+    crisp:     { dL:1,  dC:1,  dT:2,  sL:2.0, sC:0.6,  br:0.03, ct:1.18, sat:1.10, gm:0.95, cas:0.9,  crf:'17', curves:false, deband:false, nlmeans:false },
+    lowlight:  { dL:4,  dC:3,  dT:5,  sL:0.8, sC:0.2,  br:0.15, ct:1.30, sat:1.05, gm:1.40, cas:0.5,  crf:'18', curves:true,  deband:false, nlmeans:false },
+    vivid:     { dL:2,  dC:1,  dT:3,  sL:1.2, sC:0.4,  br:0.06, ct:1.18, sat:1.80, gm:0.95, cas:0.7,  crf:'18', curves:true,  deband:false, nlmeans:false },
   };
 
   const preset = PRESETS[qualityPreset] || (enhance ? PRESETS.instagram : null);
@@ -403,14 +403,10 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
   const isEnhanced = !!(preset || enhance);
-  args.push('-c:v', 'libx264', '-preset', isEnhanced ? 'slow' : 'fast', '-crf', crf);
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', crf);
   // Much stronger bitrate when quality boost is enabled
-  if (enhance) args.push('-b:v', '8000k');
-  if (isEnhanced) {
-    args.push('-profile:v', 'high', '-level:v', '4.2');
-    args.push('-maxrate', '25M', '-bufsize', '50M');
-    args.push('-refs', '5', '-bf', '3');
-  }
+  // CRF controls quality
+  args.push('-profile:v', 'main', '-level:v', '4.0');
   args.push('-pix_fmt', 'yuv420p');
   args.push('-c:a', 'aac', '-b:a', enhance ? '192k' : '128k', '-ar', '44100', '-movflags', '+faststart', outputPath);
 
