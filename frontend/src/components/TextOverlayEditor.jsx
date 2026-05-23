@@ -71,6 +71,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     const out = boxes.map(b => ({
       id: b.id, text: b.lines.join('\n'),
       fontSize: b.fontSize, posX: b.posX, posY: b.posY,
+      fontSizePct: b.fontSize / CW,
       font: b.font, textColor: b.textColor, colorHex: b.textColor,
       xPct: (b.posX/CW)*100, yPct: (b.posY/CH)*100,
       bg: b.bg, align: b.align ?? 'center', widthPct: 80,
