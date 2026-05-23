@@ -49,7 +49,7 @@ export default function App() {
           </div>
           <span style={s.logoText}>InstaManager</span>
         </div>
-        <div style={s.badge}>AI Powered</div>
+
       </header>
 
       {/* Main content */}
@@ -83,7 +83,6 @@ const s = {
   logo:      { display: 'flex', alignItems: 'center', gap: 10 },
   logoMark:  { width: 34, height: 34, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' },
   logoText:  { fontWeight: 700, fontSize: 17, color: '#fff', letterSpacing: '-0.3px' },
-  badge:     { fontSize: 10, fontWeight: 700, color: '#a855f7', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.2)', borderRadius: 20, padding: '4px 10px', letterSpacing: '0.5px', textTransform: 'uppercase' },
   main:      { flex: 1, maxWidth: 600, margin: '0 auto', width: '100%', padding: '24px 16px 16px' },
   nav:       { position: 'fixed', bottom: 0, left: 0, right: 0, height: 72, background: 'rgba(8,10,15,0.95)', backdropFilter: 'blur(30px)', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom,0px)' },
   navBtn:    { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 0' },
