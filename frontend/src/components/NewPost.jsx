@@ -327,7 +327,7 @@ export default function NewPost() {
                     </div>
                   </div>
                 </div>
-                <div>
+              </div>
               <SliderRow label="Brightness" value={brightness} min={-0.5} max={0.5}  step={0.05} def={0} onChange={setBrightness} format={v => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%'} />
               <SliderRow label="Contrast"   value={contrast}   min={0.5}  max={2.0}  step={0.05} def={1} onChange={setContrast}   format={v => v.toFixed(1) + '×'} />
               <SliderRow label="Saturation" value={saturation} min={0}    max={2.0}  step={0.05} def={1} onChange={setSaturation} format={v => v.toFixed(1) + '×'} />
