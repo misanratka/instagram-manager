@@ -43,13 +43,15 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const makeBox = (raw) => ({
     id:        raw?.id        ?? uid(),
     text:      raw?.text      ?? '',
-    // fontSize as % of video width so it scales correctly
     fontSizePct: raw?.fontSizePct ?? 0.074,
     xPct:      raw?.xPct ?? (raw?.posX != null ? (raw.posX / 1080) * 100 : 10),
     yPct:      raw?.yPct ?? (raw?.posY != null ? (raw.posY / 1920) * 100 : 12),
     fontIdx:   raw?.fontIdx   ?? 0,
     textColor: raw?.textColor ?? '#FFFFFF',
     bg:        raw?.bg        ?? 'none',
+    // bgW/bgH: background block size as % of video (for covering existing text)
+    bgW:       raw?.bgW       ?? null, // null = auto (text width + padding)
+    bgH:       raw?.bgH       ?? null, // null = auto (text height + padding)
     align:     raw?.align     ?? 'left',
   });
 
@@ -104,7 +106,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         font: font.value.replace(/'/g,'').split(',')[0].trim(),
         fontFamily: font.value, fontWeight: font.weight,
         textColor: b.textColor, colorHex: b.textColor,
-        bg: b.bg, align: b.align, widthPct: 80,
+        bg: b.bg, bgW: b.bgW, bgH: b.bgH, align: b.align, widthPct: 80,
       };
     });
     onChange(out.filter(b => b.text.trim()));
@@ -199,10 +201,16 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       if(bgColor){
         const maxTw=Math.max(...lines.map(l=>ctx.measureText(l).width));
         const pad=Math.round(fontSize*0.2);
-        const bgX=b.align==='left'?anchorX-pad:b.align==='right'?anchorX-maxTw-pad:anchorX-maxTw/2-pad;
+        // Use custom bgW/bgH if set (for covering existing video text)
+        const bWidth  = b.bgW ? Math.round((b.bgW/100)*CW)  : maxTw + pad*2;
+        const bHeight = b.bgH ? Math.round((b.bgH/100)*CH)  : totalH + pad*1.2;
+        const bgX = b.align==='left'  ? anchorX-pad :
+                    b.align==='right' ? anchorX-bWidth+pad :
+                                        posX - bWidth/2;
+        const bgY = posY - bHeight/2;
         ctx.fillStyle=bgColor;
         ctx.beginPath();
-        ctx.roundRect(bgX,posY-totalH/2-pad*0.6,maxTw+pad*2,totalH+pad*1.2,Math.round(fontSize*0.08));
+        ctx.roundRect(bgX, bgY, bWidth, bHeight, Math.round(fontSize*0.08));
         ctx.fill();
       }
 
@@ -239,10 +247,11 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   }
   useEffect(()=>{
     function onMove(e){
-      if(!sliderDrag.current) return;
+      if(!sliderDrag.current || !sliderStart.current) return;
+      e.preventDefault();
       const curY=e.touches?.[0]?.clientY??e.clientY;
       const dy=sliderStart.current.y-curY;
-      const newPct=clamp(sliderStart.current.startPct+dy*0.0004, 0.02, 0.18);
+      const newPct=clamp(sliderStart.current.startPct+dy*0.0005, 0.02, 0.20);
       updateBox(stateRef.current.activeId,{fontSizePct:newPct});
     }
     function onEnd(){sliderDrag.current=false;}
@@ -425,6 +434,26 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
           </button>
         </div>
 
+        {/* BG Size controls — only shown when BG is active */}
+        {hasBg && (
+          <div style={S.bgSizeRow}>
+            <span style={S.bgSizeLabel}>BG Width</span>
+            <input type="range" min={5} max={95} step={1}
+              value={ab?.bgW ?? 40}
+              onChange={e => updateBox(ab?.id, { bgW: Number(e.target.value) })}
+              style={S.bgSlider}
+            />
+            <span style={S.bgSizeVal}>{ab?.bgW ?? 40}%</span>
+            <span style={{...S.bgSizeLabel, marginLeft:10}}>Height</span>
+            <input type="range" min={3} max={60} step={1}
+              value={ab?.bgH ?? 12}
+              onChange={e => updateBox(ab?.id, { bgH: Number(e.target.value) })}
+              style={S.bgSlider}
+            />
+            <span style={S.bgSizeVal}>{ab?.bgH ?? 12}%</span>
+          </div>
+        )}
+
         {/* Font strip */}
         <div style={S.fontRow}>
           {FONTS.map((f,i)=>(
@@ -475,5 +504,9 @@ const S = {
   ta:       { flex:1, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, padding:'10px 12px', fontSize:16, fontWeight:600, color:'#fff', outline:'none', resize:'none', lineHeight:1.4 },
   alignBtn: { width:36, height:36, marginTop:2, flexShrink:0, background:'rgba(255,255,255,0.08)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
   fontRow:  { flexShrink:0, display:'flex', overflowX:'auto', borderTop:'1px solid #2C2C2E', paddingBottom:'env(safe-area-inset-bottom,10px)' },
-  fontBtn:  { flexShrink:0, padding:'10px 14px', fontSize:15, cursor:'pointer', border:'none', borderRadius:0, whiteSpace:'nowrap', lineHeight:1.2, transition:'all 0.12s' },
+  fontBtn:   { flexShrink:0, padding:'10px 14px', fontSize:15, cursor:'pointer', border:'none', borderRadius:0, whiteSpace:'nowrap', lineHeight:1.2, transition:'all 0.12s' },
+  bgSizeRow: { flexShrink:0, display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderTop:'1px solid #2C2C2E', background:'rgba(0,0,0,0.2)' },
+  bgSizeLabel:{ fontSize:11, color:'#888', whiteSpace:'nowrap', fontWeight:600 },
+  bgSizeVal: { fontSize:11, color:'#fff', minWidth:28, textAlign:'right', fontWeight:600 },
+  bgSlider:  { flex:1, accentColor:'#fff', cursor:'pointer', height:3 },
 };
