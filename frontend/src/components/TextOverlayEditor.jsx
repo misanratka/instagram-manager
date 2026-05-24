@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-const CW = 1080;
-const CH = 1920;
-
+// Canvas internal res = actual video dimensions (set on video load)
+// This ensures xPct/yPct match 1:1 with FFmpeg's iw/ih
 const FONTS = [
   { label: 'Anek Bangla',   value: "'Anek Bangla', sans-serif",        weight: '300', style: 'normal' },
   { label: 'Albert Sans',   value: "'Albert Sans', sans-serif",         weight: '700', style: 'normal' },
@@ -20,10 +19,10 @@ const FONTS = [
 
 const COLORS = ['#FFFFFF','#000000','#FFEE00','#FF3B30','#FF9500','#34C759','#007AFF','#FF2D55','#AF52DE','#FF6B35'];
 const BGS = [
-  { v:'none',   bg:'transparent', fg:'#fff', label:'None'   },
-  { v:'black',  bg:'#000000',     fg:'#fff', label:'Black'  },
-  { v:'white',  bg:'#FFFFFF',     fg:'#000', label:'White'  },
-  { v:'yellow', bg:'#FFEE00',     fg:'#000', label:'Yellow' },
+  { v:'none',   bg:'transparent', fg:'#fff' },
+  { v:'black',  bg:'#000000',     fg:'#fff' },
+  { v:'white',  bg:'#FFFFFF',     fg:'#000' },
+  { v:'yellow', bg:'#FFEE00',     fg:'#000' },
 ];
 
 function clamp(v,lo,hi){ return Math.max(lo,Math.min(hi,v)); }
@@ -44,63 +43,43 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const makeBox = (raw) => ({
     id:        raw?.id        ?? uid(),
     text:      raw?.text      ?? '',
-    fontSize:  raw?.fontSize  ?? 80,
-    xPct:      raw?.xPct      ?? 50,
-    yPct:      raw?.yPct      ?? 25,
+    // fontSize as % of video width so it scales correctly
+    fontSizePct: raw?.fontSizePct ?? 0.074,
+    xPct:      raw?.xPct ?? (raw?.posX != null ? (raw.posX / 1080) * 100 : 10),
+    yPct:      raw?.yPct ?? (raw?.posY != null ? (raw.posY / 1920) * 100 : 12),
     fontIdx:   raw?.fontIdx   ?? 0,
     textColor: raw?.textColor ?? '#FFFFFF',
     bg:        raw?.bg        ?? 'none',
     align:     raw?.align     ?? 'left',
   });
 
-  const [boxes,     setBoxes]     = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
-  const [activeId,  setActiveId]  = useState(() => textBoxes?.[0]?.id ?? boxes[0]?.id);
-  const [typing,    setTyping]    = useState(false);
-  const [kbHeight,  setKbHeight]  = useState(0);
-  // Detect actual video aspect ratio
-  const [videoRatio, setVideoRatio] = useState(9/16); // default 9:16, updates when video loads
+  const [boxes,    setBoxes]    = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
+  const [activeId, setActiveId] = useState(() => textBoxes?.[0]?.id ?? boxes[0]?.id);
+  // Actual video pixel dimensions - canvas matches this exactly
+  const [vidW, setVidW] = useState(1080);
+  const [vidH, setVidH] = useState(1920);
 
   const canvasRef  = useRef(null);
   const videoRef   = useRef(null);
   const gestureRef = useRef(null);
   const ptrsRef    = useRef(new Map());
-  const stateRef   = useRef({ boxes, activeId });
+  const stateRef   = useRef({ boxes, activeId, vidW: 1080, vidH: 1920 });
   const sliderDrag = useRef(false);
   const sliderStart= useRef(null);
-  const [screenW,  setScreenW]  = useState(window.innerWidth);
-  const [screenH,  setScreenH]  = useState(window.innerHeight);
+  const [screenW]  = useState(window.innerWidth);
 
-  useEffect(()=>{ stateRef.current = { boxes, activeId }; },[boxes,activeId]);
-
-  // Screen size
   useEffect(()=>{
-    function onResize(){
-      setScreenW(window.innerWidth);
-      setScreenH(window.innerHeight);
-    }
-    window.addEventListener('resize', onResize);
-    return ()=>window.removeEventListener('resize', onResize);
-  },[]);
+    stateRef.current = { boxes, activeId, vidW, vidH };
+  },[boxes, activeId, vidW, vidH]);
 
-  // Keyboard height detection
-  useEffect(()=>{
-    function onVPResize(){
-      if(window.visualViewport){
-        const kh = window.innerHeight - window.visualViewport.height;
-        setKbHeight(Math.max(0, kh));
-      }
-    }
-    window.visualViewport?.addEventListener('resize', onVPResize);
-    return ()=>window.visualViewport?.removeEventListener('resize', onVPResize);
-  },[]);
-
-  // Detect video aspect ratio when it loads
+  // Detect actual video dimensions on load
   useEffect(()=>{
     const vid = videoRef.current;
     if(!vid) return;
     function onMeta(){
       if(vid.videoWidth && vid.videoHeight){
-        setVideoRatio(vid.videoWidth / vid.videoHeight);
+        setVidW(vid.videoWidth);
+        setVidH(vid.videoHeight);
       }
     }
     vid.addEventListener('loadedmetadata', onMeta);
@@ -108,17 +87,19 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     return ()=>vid.removeEventListener('loadedmetadata', onMeta);
   },[videoSrc]);
 
-  // Emit to parent
+  // Emit to parent — xPct/yPct are % of actual video dimensions
+  // FFmpeg uses same: x = iw * xPct/100, y = ih * yPct/100
   useEffect(()=>{
     const out = boxes.map(b => {
       const font = FONTS[b.fontIdx??0];
+      const fontSizePx = Math.round(b.fontSizePct * vidW);
       return {
         id: b.id, text: b.text,
         lines: b.text.split('\n'),
-        fontSize: b.fontSize,
-        fontSizePct: b.fontSize / CW,
-        posX: Math.round((b.xPct/100)*CW),
-        posY: Math.round((b.yPct/100)*CH),
+        fontSize: fontSizePx,
+        fontSizePct: b.fontSizePct,
+        posX: Math.round((b.xPct/100)*vidW),
+        posY: Math.round((b.yPct/100)*vidH),
         xPct: b.xPct, yPct: b.yPct,
         font: font.value.replace(/'/g,'').split(',')[0].trim(),
         fontFamily: font.value, fontWeight: font.weight,
@@ -127,14 +108,14 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       };
     });
     onChange(out.filter(b => b.text.trim()));
-  },[boxes]); // eslint-disable-line
+  },[boxes, vidW, vidH]); // eslint-disable-line
 
   const updateBox = useCallback((id,patch)=>{
     setBoxes(prev=>prev.map(b=>b.id===id?{...b,...patch}:b));
   },[]);
 
   const addBox = ()=>{
-    const nb = makeBox({ id:uid(), xPct:50, yPct:50 });
+    const nb = makeBox({ id:uid(), xPct:10, yPct:10 });
     setBoxes(prev=>[...prev, nb]);
     setActiveId(nb.id);
   };
@@ -148,40 +129,35 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const font  = FONTS[ab?.fontIdx??0];
   const bgObj = BGS.find(b=>b.v===(ab?.bg??'none'))??BGS[0];
   const hasBg = ab?.bg !== 'none';
-  const textCol = (ab?.bg==='white'||ab?.bg==='yellow')?'#000':(ab?.textColor??'#fff');
 
-  // ── VIDEO BOX SIZE ───────────────────────────────────────────
-  // The canvas must show video in its EXACT ratio
-  // Canvas box width = screen width
-  // Canvas box height = width / videoRatio (BUT cap at ~60% of screen)
-  const topBarH = 52;
-  const maxVideoH = Math.round(screenH * 0.58); // max 58% of screen
-  let canvasDisplayW = screenW;
-  let canvasDisplayH = Math.round(screenW / videoRatio);
-  if(canvasDisplayH > maxVideoH){
-    canvasDisplayH = maxVideoH;
-    canvasDisplayW = Math.round(maxVideoH * videoRatio);
+  // ── DISPLAY SIZE ─────────────────────────────────────────────
+  // Canvas displayed at screen width, height scaled to video ratio
+  // This gives exact same proportions as actual video
+  const maxVideoH = Math.round(window.innerHeight * 0.56);
+  let dispW = screenW - 38; // minus slider width
+  let dispH = Math.round(dispW * vidH / vidW);
+  if(dispH > maxVideoH){
+    dispH = maxVideoH;
+    dispW = Math.round(dispH * vidW / vidH);
   }
 
   // ── CANVAS DRAW ──────────────────────────────────────────────
+  // Canvas internal = actual video dimensions (vidW x vidH)
+  // No black bars — video fills entire canvas perfectly
   const draw = useCallback(()=>{
     const canvas = canvasRef.current;
     if(!canvas) return;
     const ctx = canvas.getContext('2d');
-    const { boxes, activeId } = stateRef.current;
+    const { boxes, activeId, vidW: CW, vidH: CH } = stateRef.current;
 
     ctx.fillStyle = '#000';
     ctx.fillRect(0,0,CW,CH);
 
+    // Draw video — fills entire canvas (no letterbox)
     const vid = videoRef.current;
     if(vid && vid.readyState>=2){
       try{
-        const vw=vid.videoWidth||CW, vh=vid.videoHeight||CH;
-        const vR=vw/vh, cR=CW/CH;
-        let dw,dh,dx=0,dy=0;
-        if(vR>cR){ dw=CW; dh=CW/vR; dy=(CH-dh)/2; }
-        else     { dh=CH; dw=CH*vR; dx=(CW-dw)/2; }
-        ctx.drawImage(vid,dx,dy,dw,dh);
+        ctx.drawImage(vid, 0, 0, CW, CH);
       }catch(_){}
     }
 
@@ -189,14 +165,17 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       if(!b.text.trim()) return;
       const isActive = b.id===activeId;
       const f = FONTS[b.fontIdx??0];
+      // fontSize in pixels relative to canvas width
+      const fontSize = Math.round(b.fontSizePct * CW);
       const posX = Math.round((b.xPct/100)*CW);
       const posY = Math.round((b.yPct/100)*CH);
-      const maxW = CW*0.85;
+      const maxW = CW * 0.88;
 
-      ctx.font=`${f.weight} ${b.fontSize}px ${f.value}`;
+      ctx.font=`${f.weight} ${fontSize}px ${f.value}`;
       ctx.textBaseline='middle';
       ctx.textAlign=b.align||'left';
 
+      // Wrap text
       const lines=[];
       b.text.split('\n').forEach(para=>{
         if(!para){lines.push('');return;}
@@ -210,21 +189,20 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         if(cur)lines.push(cur);
       });
 
-      const lineH=b.fontSize*1.3;
+      const lineH=fontSize*1.3;
       const totalH=lines.length*lineH;
       const startY=posY-totalH/2+lineH/2;
       const anchorX=b.align==='center'?posX:b.align==='right'?posX+maxW/2:posX-maxW/2;
-
       const bgColor=b.bg==='black'?'#000':b.bg==='white'?'#fff':b.bg==='yellow'?'#FFEE00':null;
       const fgColor=(b.bg==='white'||b.bg==='yellow')?'#000':b.textColor;
 
       if(bgColor){
         const maxTw=Math.max(...lines.map(l=>ctx.measureText(l).width));
-        const pad=22;
+        const pad=Math.round(fontSize*0.2);
         const bgX=b.align==='left'?anchorX-pad:b.align==='right'?anchorX-maxTw-pad:anchorX-maxTw/2-pad;
         ctx.fillStyle=bgColor;
         ctx.beginPath();
-        ctx.roundRect(bgX,posY-totalH/2-14,maxTw+pad*2,totalH+28,8);
+        ctx.roundRect(bgX,posY-totalH/2-pad*0.6,maxTw+pad*2,totalH+pad*1.2,Math.round(fontSize*0.08));
         ctx.fill();
       }
 
@@ -234,12 +212,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       });
 
       if(isActive){
-        ctx.font=`${f.weight} ${b.fontSize}px ${f.value}`;
         const maxTw=Math.max(...lines.map(l=>ctx.measureText(l).width),60);
-        const pad=38;
+        const pad=Math.round(fontSize*0.4);
         const bx=b.align==='left'?anchorX-pad:b.align==='right'?anchorX-maxTw-pad:anchorX-maxTw/2-pad;
         ctx.strokeStyle='rgba(255,255,255,0.85)';
-        ctx.lineWidth=4;ctx.setLineDash([10,6]);
+        ctx.lineWidth=Math.max(3, fontSize*0.03);
+        ctx.setLineDash([10,6]);
         ctx.strokeRect(bx,posY-totalH/2-pad/2,maxTw+pad*2,totalH+pad);
         ctx.setLineDash([]);
       }
@@ -253,19 +231,19 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     return()=>cancelAnimationFrame(raf);
   },[draw]);
 
-  // ── SLIDER ───────────────────────────────────────────────────
+  // ── SLIDER — adjusts fontSizePct ─────────────────────────────
   function startSlider(e){
     e.preventDefault();
     sliderDrag.current=true;
-    sliderStart.current={y:e.touches?.[0]?.clientY??e.clientY,startFS:ab?.fontSize??80};
+    sliderStart.current={y:e.touches?.[0]?.clientY??e.clientY, startPct:ab?.fontSizePct??0.074};
   }
   useEffect(()=>{
     function onMove(e){
       if(!sliderDrag.current) return;
       const curY=e.touches?.[0]?.clientY??e.clientY;
-      updateBox(stateRef.current.activeId,{
-        fontSize:clamp(Math.round(sliderStart.current.startFS+(sliderStart.current.y-curY)*0.9),24,200),
-      });
+      const dy=sliderStart.current.y-curY;
+      const newPct=clamp(sliderStart.current.startPct+dy*0.0004, 0.02, 0.18);
+      updateBox(stateRef.current.activeId,{fontSizePct:newPct});
     }
     function onEnd(){sliderDrag.current=false;}
     window.addEventListener('touchmove',onMove,{passive:false});
@@ -281,16 +259,17 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   },[updateBox]);
 
   // ── DRAG & PINCH ─────────────────────────────────────────────
-  function hitTest(box,cx,cy){
-    if(!box) return false;
+  function hitTest(box,cx,cy,CW,CH){
     const posX=Math.round((box.xPct/100)*CW);
     const posY=Math.round((box.yPct/100)*CH);
-    return cx>=posX-150&&cx<=posX+150&&cy>=posY-150&&cy<=posY+150;
+    const pad=Math.round((box.fontSizePct??0.074)*CW*2);
+    return cx>=posX-pad&&cx<=posX+pad&&cy>=posY-pad&&cy<=posY+pad;
   }
 
   function s2c(sx,sy){
     const c=canvasRef.current; if(!c) return{cx:0,cy:0};
     const r=c.getBoundingClientRect();
+    const {vidW:CW,vidH:CH}=stateRef.current;
     return{cx:(sx-r.left)*(CW/r.width),cy:(sy-r.top)*(CH/r.height)};
   }
 
@@ -302,13 +281,14 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       const pts=[...ptrsRef.current.values()];
       const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
       const box=stateRef.current.boxes.find(b=>b.id===stateRef.current.activeId);
-      gestureRef.current={mode:'pinch',startDist:dist,startFS:box?.fontSize??80};
+      gestureRef.current={mode:'pinch',startDist:dist,startPct:box?.fontSizePct??0.074};
       return;
     }
     const{cx,cy}=s2c(e.clientX,e.clientY);
-    for(let i=stateRef.current.boxes.length-1;i>=0;i--){
-      const box=stateRef.current.boxes[i];
-      if(hitTest(box,cx,cy)){
+    const{vidW:CW,vidH:CH,boxes}=stateRef.current;
+    for(let i=boxes.length-1;i>=0;i--){
+      const box=boxes[i];
+      if(hitTest(box,cx,cy,CW,CH)){
         setActiveId(box.id);
         gestureRef.current={mode:'drag',sx:e.clientX,sy:e.clientY,ox:box.xPct,oy:box.yPct,id:box.id,moved:false};
         return;
@@ -327,14 +307,15 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       if(!g.moved) return;
       const r=canvasRef.current?.getBoundingClientRect(); if(!r) return;
       updateBox(g.id,{
-        xPct:clamp(g.ox+(dx/r.width)*100,1,99),
-        yPct:clamp(g.oy+(dy/r.height)*100,1,99),
+        xPct:clamp(g.ox+(dx/r.width)*100,0,98),
+        yPct:clamp(g.oy+(dy/r.height)*100,0,98),
       });
     } else if(g.mode==='pinch'){
       const pts=[...ptrsRef.current.values()];
       if(pts.length<2) return;
       const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-      updateBox(stateRef.current.activeId,{fontSize:clamp(Math.round(g.startFS*dist/g.startDist),24,200)});
+      const newPct=clamp(g.startPct*(dist/g.startDist),0.02,0.18);
+      updateBox(stateRef.current.activeId,{fontSizePct:newPct});
     }
   }
 
@@ -343,17 +324,16 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     if(ptrsRef.current.size===0) gestureRef.current=null;
   }
 
-  const sliderPct  = 1-((ab?.fontSize??80)-24)/(200-24);
+  const sliderPct  = 1-((ab?.fontSizePct??0.074)-0.02)/(0.18-0.02);
   const alignCycle = ()=>updateBox(ab?.id,{align:{left:'center',center:'right',right:'left'}[ab?.align??'left']});
   const bgCycle    = ()=>updateBox(ab?.id,{bg:BGS[(BGS.findIndex(b=>b.v===(ab?.bg??'none'))+1)%BGS.length].v});
-
-  // Bottom panel height depends on keyboard
-  const panelShowing = true;
-  const bottomPanelH = kbHeight > 100 ? 0 : 'auto'; // hide when keyboard up, keyboard handles scroll
+  const fontSizePx = Math.round((ab?.fontSizePct??0.074)*vidW);
 
   return(
-    <div style={{...S.root}}>
-      {videoSrc && <video ref={videoRef} src={videoSrc} style={{display:'none'}} loop playsInline muted autoPlay/>}
+    <div style={S.root}>
+      {videoSrc && (
+        <video ref={videoRef} src={videoSrc} style={{display:'none'}} loop playsInline muted autoPlay/>
+      )}
 
       {/* TOP BAR */}
       <div style={S.topBar}>
@@ -371,15 +351,10 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         <button onClick={onClose} style={S.btnSave}>Save</button>
       </div>
 
-      {/* VIDEO — exact ratio, fills width */}
-      <div style={{
-        ...S.videoOuter,
-        // Center horizontally if narrower than screen (landscape video)
-        alignItems:'center',
-        justifyContent:'center',
-      }}>
-        {/* Left slider */}
-        <div style={S.sliderCol} onMouseDown={startSlider} onTouchStart={startSlider}>
+      {/* VIDEO ROW: slider + canvas */}
+      <div style={S.videoRow}>
+        {/* Slider */}
+        <div style={{...S.sliderCol, height:dispH}} onMouseDown={startSlider} onTouchStart={startSlider}>
           <span style={S.sA}>A</span>
           <div style={S.sTrack}>
             <div style={{...S.sThumb,top:`${sliderPct*78+4}%`}}/>
@@ -387,33 +362,21 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
           <span style={S.sA2}>A</span>
         </div>
 
-        {/* Canvas at EXACT video ratio */}
-        <div style={{
-          width: canvasDisplayW,
-          height: canvasDisplayH,
-          position:'relative',
-          flexShrink:0,
-          background:'#000',
-          overflow:'hidden',
-        }}>
+        {/* Canvas — exact video ratio, no black bars */}
+        <div style={{width:dispW, height:dispH, position:'relative', flexShrink:0, background:'#000', overflow:'hidden'}}>
           <canvas
-            ref={canvasRef} width={CW} height={CH}
+            ref={canvasRef}
+            width={vidW} height={vidH}
             onPointerDown={onPtrDown} onPointerMove={onPtrMove}
             onPointerUp={onPtrUp} onPointerCancel={onPtrUp}
-            style={{
-              position:'absolute',inset:0,
-              width:'100%',height:'100%',
-              touchAction:'none',cursor:'crosshair',
-              display:'block',
-            }}
+            style={{position:'absolute',inset:0,width:'100%',height:'100%',touchAction:'none',cursor:'crosshair',display:'block'}}
           />
         </div>
       </div>
 
-      {/* CONTROLS PANEL */}
-      <div style={S.panel}>
-
-        {/* Text box selector */}
+      {/* CONTROLS */}
+      <div style={S.controls}>
+        {/* Text tabs */}
         {boxes.length>1 && (
           <div style={S.tabRow}>
             {boxes.map((b,i)=>(
@@ -427,7 +390,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
           </div>
         )}
 
-        <div style={S.div}/>
+        <div style={S.divider}/>
 
         {/* Colors */}
         <div style={S.colorRow}>
@@ -441,13 +404,11 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
           ))}
         </div>
 
-        {/* Text input */}
+        {/* Input */}
         <div style={S.inputRow}>
           <textarea
             value={ab?.text??''}
             onChange={e=>updateBox(ab?.id,{text:e.target.value})}
-            onFocus={()=>setTyping(true)}
-            onBlur={()=>setTyping(false)}
             rows={2}
             style={{
               ...S.ta,
@@ -490,41 +451,29 @@ function AlignIcon({align}){
 }
 
 const S = {
-  root:    { position:'fixed', inset:0, zIndex:9999, background:'#1C1C1E', display:'flex', flexDirection:'column', fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif', overflow:'hidden' },
-
-  topBar:  { flexShrink:0, height:52, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', paddingTop:'env(safe-area-inset-top,0px)', borderBottom:'1px solid #2C2C2E', background:'#1C1C1E' },
-  btnDone: { background:'transparent', border:'none', color:'#999', fontSize:15, fontWeight:600, cursor:'pointer' },
-  btnSave: { background:'transparent', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' },
-  topMid:  { display:'flex', gap:10, alignItems:'center' },
-  iconBtn: { width:36, height:36, borderRadius:18, background:'rgba(255,255,255,0.1)', border:'none', color:'#fff', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
-  addBtn:  { padding:'7px 16px', borderRadius:18, background:'rgba(99,102,241,0.2)', border:'1px solid rgba(99,102,241,0.4)', color:'#a5b4fc', fontSize:13, fontWeight:700, cursor:'pointer' },
-
-  // Video area
-  videoOuter:{ flexShrink:0, display:'flex', flexDirection:'row', background:'#000', overflow:'hidden' },
-
-  // Slider
-  sliderCol: { width:36, flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'space-between', padding:'8px 0', cursor:'ns-resize', userSelect:'none', touchAction:'none', background:'#111' },
-  sA:  { fontSize:15, fontWeight:800, color:'rgba(255,255,255,0.5)', lineHeight:1 },
-  sA2: { fontSize:8,  fontWeight:700, color:'rgba(255,255,255,0.5)', lineHeight:1 },
-  sTrack: { flex:1, width:3, background:'rgba(255,255,255,0.15)', borderRadius:3, margin:'6px 0', position:'relative' },
-  sThumb: { position:'absolute', width:20, height:20, background:'#fff', borderRadius:'50%', left:'50%', transform:'translate(-50%,-50%)', boxShadow:'0 2px 8px rgba(0,0,0,0.5)' },
-
-  // Controls panel
-  panel:   { flex:1, display:'flex', flexDirection:'column', background:'#1C1C1E', overflow:'hidden', minHeight:0 },
-
-  tabRow:  { display:'flex', gap:4, padding:'4px 12px 2px', alignItems:'center', overflowX:'auto', flexShrink:0 },
-  tab:     { padding:'5px 14px', fontSize:12, fontWeight:600, cursor:'pointer', border:'none', borderRadius:0, background:'transparent', flexShrink:0 },
-  removeBtn:{ marginLeft:'auto', padding:'5px 12px', borderRadius:12, border:'none', background:'rgba(239,68,68,0.15)', color:'#f87171', fontSize:11, fontWeight:700, cursor:'pointer', flexShrink:0 },
-
-  div: { height:1, background:'#2C2C2E', flexShrink:0 },
-
-  colorRow:{ flexShrink:0, display:'flex', gap:9, padding:'10px 14px', overflowX:'auto', borderBottom:'1px solid #2C2C2E' },
-  dot:     { width:28, height:28, borderRadius:'50%', flexShrink:0, cursor:'pointer', padding:0, transition:'transform 0.12s' },
-
-  inputRow:{ flexShrink:0, display:'flex', alignItems:'flex-start', gap:8, padding:'8px 12px 6px' },
-  ta:      { flex:1, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, padding:'10px 12px', fontSize:16, fontWeight:600, color:'#fff', outline:'none', resize:'none', lineHeight:1.4 },
-  alignBtn:{ width:36, height:36, marginTop:2, flexShrink:0, background:'rgba(255,255,255,0.08)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
-
-  fontRow: { flexShrink:0, display:'flex', overflowX:'auto', borderTop:'1px solid #2C2C2E', paddingBottom:'env(safe-area-inset-bottom,10px)' },
-  fontBtn: { flexShrink:0, padding:'10px 14px', fontSize:15, cursor:'pointer', border:'none', borderRadius:0, whiteSpace:'nowrap', lineHeight:1.2, transition:'all 0.12s' },
+  root:     { position:'fixed', inset:0, zIndex:9999, background:'#1C1C1E', display:'flex', flexDirection:'column', fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif', overflow:'hidden' },
+  topBar:   { flexShrink:0, height:52, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', paddingTop:'env(safe-area-inset-top,0px)', borderBottom:'1px solid #2C2C2E' },
+  btnDone:  { background:'transparent', border:'none', color:'#999', fontSize:15, fontWeight:600, cursor:'pointer' },
+  btnSave:  { background:'transparent', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' },
+  topMid:   { display:'flex', gap:10, alignItems:'center' },
+  iconBtn:  { width:36, height:36, borderRadius:18, background:'rgba(255,255,255,0.1)', border:'none', color:'#fff', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
+  addBtn:   { padding:'7px 16px', borderRadius:18, background:'rgba(99,102,241,0.2)', border:'1px solid rgba(99,102,241,0.4)', color:'#a5b4fc', fontSize:13, fontWeight:700, cursor:'pointer' },
+  videoRow: { flexShrink:0, display:'flex', flexDirection:'row', background:'#000', justifyContent:'center', alignItems:'center' },
+  sliderCol:{ width:38, flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'space-between', padding:'8px 0', cursor:'ns-resize', userSelect:'none', touchAction:'none', background:'#111' },
+  sA:       { fontSize:15, fontWeight:800, color:'rgba(255,255,255,0.5)', lineHeight:1 },
+  sA2:      { fontSize:8,  fontWeight:700, color:'rgba(255,255,255,0.5)', lineHeight:1 },
+  sTrack:   { flex:1, width:3, background:'rgba(255,255,255,0.15)', borderRadius:3, margin:'6px 0', position:'relative' },
+  sThumb:   { position:'absolute', width:20, height:20, background:'#fff', borderRadius:'50%', left:'50%', transform:'translate(-50%,-50%)', boxShadow:'0 2px 8px rgba(0,0,0,0.5)' },
+  controls: { flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0 },
+  tabRow:   { flexShrink:0, display:'flex', gap:4, padding:'4px 12px', alignItems:'center', overflowX:'auto' },
+  tab:      { padding:'5px 14px', fontSize:12, fontWeight:600, cursor:'pointer', border:'none', borderRadius:0, background:'transparent', flexShrink:0 },
+  removeBtn:{ marginLeft:'auto', padding:'5px 12px', borderRadius:12, border:'none', background:'rgba(239,68,68,0.15)', color:'#f87171', fontSize:11, fontWeight:700, cursor:'pointer' },
+  divider:  { height:1, background:'#2C2C2E', flexShrink:0 },
+  colorRow: { flexShrink:0, display:'flex', gap:9, padding:'10px 14px', overflowX:'auto', borderBottom:'1px solid #2C2C2E' },
+  dot:      { width:28, height:28, borderRadius:'50%', flexShrink:0, cursor:'pointer', padding:0, transition:'transform 0.12s' },
+  inputRow: { flexShrink:0, display:'flex', alignItems:'flex-start', gap:8, padding:'8px 12px 6px' },
+  ta:       { flex:1, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, padding:'10px 12px', fontSize:16, fontWeight:600, color:'#fff', outline:'none', resize:'none', lineHeight:1.4 },
+  alignBtn: { width:36, height:36, marginTop:2, flexShrink:0, background:'rgba(255,255,255,0.08)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
+  fontRow:  { flexShrink:0, display:'flex', overflowX:'auto', borderTop:'1px solid #2C2C2E', paddingBottom:'env(safe-area-inset-bottom,10px)' },
+  fontBtn:  { flexShrink:0, padding:'10px 14px', fontSize:15, cursor:'pointer', border:'none', borderRadius:0, whiteSpace:'nowrap', lineHeight:1.2, transition:'all 0.12s' },
 };
