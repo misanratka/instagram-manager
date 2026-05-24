@@ -98,11 +98,14 @@ function buildCoverBox(overlay) {
   const color = { white: 'white@1.0', light: 'white@0.82', dark: 'black@0.78', black: 'black@1.0' }[overlay.bg] || 'black@0.78';
   let xExpr, yExpr, wExpr, hExpr;
 
-  if (overlay.coverWidthPct !== undefined && overlay.coverHeightPct !== undefined) {
-    const xc  = (overlay.xPct / 100).toFixed(6);
-    const yc  = (overlay.yPct / 100).toFixed(6);
-    const wPct = (overlay.coverWidthPct / 100).toFixed(6);
-    const hPct = (overlay.coverHeightPct / 100).toFixed(6);
+  // Support bgW/bgH from editor (percentages of video dimensions)
+  const hasBgSize = (overlay.bgW !== undefined && overlay.bgW !== null) ||
+                    (overlay.coverWidthPct !== undefined);
+  if (hasBgSize) {
+    const xc   = (overlay.xPct / 100).toFixed(6);
+    const yc   = (overlay.yPct / 100).toFixed(6);
+    const wPct = ((overlay.bgW ?? overlay.coverWidthPct ?? 40) / 100).toFixed(6);
+    const hPct = ((overlay.bgH ?? overlay.coverHeightPct ?? 12) / 100).toFixed(6);
     wExpr = `iw*${wPct}`;
     hExpr = `ih*${hPct}`;
     xExpr = `iw*${xc}-(${wExpr})/2`;
