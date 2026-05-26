@@ -78,12 +78,12 @@ export default function App() {
 }
 
 const s = {
-  root:      { minHeight: '100dvh', background: '#080A0F', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif', paddingBottom: 80 },
+  root:      { minHeight: '100dvh', background: '#080A0F', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif', paddingBottom: 80, overflowX: 'hidden', width: '100%', maxWidth: '100vw' },
   header:    { height: 56, padding: '0 20px', background: 'rgba(8,10,15,0.9)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 },
   logo:      { display: 'flex', alignItems: 'center', gap: 10 },
   logoMark:  { width: 34, height: 34, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' },
   logoText:  { fontWeight: 700, fontSize: 17, color: '#fff', letterSpacing: '-0.3px' },
-  main:      { flex: 1, maxWidth: 600, margin: '0 auto', width: '100%', padding: '24px 16px 16px' },
+  main:      { flex: 1, maxWidth: 600, margin: '0 auto', width: '100%', padding: '16px 16px 16px', overflowX: 'hidden' },
   nav:       { position: 'fixed', bottom: 0, left: 0, right: 0, height: 72, background: 'rgba(8,10,15,0.95)', backdropFilter: 'blur(30px)', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom,0px)' },
   navBtn:    { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 0' },
   navIcon:   { width: 44, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' },
