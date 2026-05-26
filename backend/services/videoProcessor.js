@@ -151,8 +151,10 @@ function buildSingleLine(overlay, yOffsetPx) {
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
     const xp = (Number(overlay.xPct) / 100).toFixed(6);
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
-    if (align === 'left')       xExpr = `(w*${xp})`;
-    else if (align === 'right') xExpr = `(w*${xp})-(text_w)`;
+    // xPct is the CENTER anchor point (matches canvas editor exactly)
+    // text_w/2 shifts so text is centered at xPct
+    if (align === 'left')       xExpr = `(w*${xp})-(text_w/2)`;
+    else if (align === 'right') xExpr = `(w*${xp})-(text_w/2)`;
     else                        xExpr = `(w*${xp})-(text_w/2)`;
     const yBase = `(h*${yp})`;
     yExpr = yOffsetPx === 0
