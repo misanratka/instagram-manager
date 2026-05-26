@@ -175,7 +175,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
 
       ctx.font=`${f.weight} ${fontSize}px ${f.value}`;
       ctx.textBaseline='middle';
-      ctx.textAlign=b.align||'left';
+      ctx.textAlign='center'; // posX is always center anchor
 
       // Wrap text
       const lines=[];
@@ -194,7 +194,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       const lineH=fontSize*1.3;
       const totalH=lines.length*lineH;
       const startY=posY-totalH/2+lineH/2;
-      const anchorX=b.align==='center'?posX:b.align==='right'?posX+maxW/2:posX-maxW/2;
+      const anchorX=posX; // always center — matches FFmpeg x=w*xPct-(text_w/2)
       const bgColor=b.bg==='black'?'#000':b.bg==='white'?'#fff':b.bg==='yellow'?'#FFEE00':null;
       const fgColor=(b.bg==='white'||b.bg==='yellow')?'#000':b.textColor;
 
@@ -204,9 +204,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         // Use custom bgW/bgH if set (for covering existing video text)
         const bWidth  = b.bgW ? Math.round((b.bgW/100)*CW)  : maxTw + pad*2;
         const bHeight = b.bgH ? Math.round((b.bgH/100)*CH)  : totalH + pad*1.2;
-        const bgX = b.align==='left'  ? anchorX-pad :
-                    b.align==='right' ? anchorX-bWidth+pad :
-                                        posX - bWidth/2;
+        const bgX = posX - bWidth/2;
         const bgY = posY - bHeight/2;
         ctx.fillStyle=bgColor;
         ctx.beginPath();
@@ -222,7 +220,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       if(isActive){
         const maxTw=Math.max(...lines.map(l=>ctx.measureText(l).width),60);
         const pad=Math.round(fontSize*0.4);
-        const bx=b.align==='left'?anchorX-pad:b.align==='right'?anchorX-maxTw-pad:anchorX-maxTw/2-pad;
+        const bx=posX-maxTw/2-pad;
         ctx.strokeStyle='rgba(255,255,255,0.85)';
         ctx.lineWidth=Math.max(3, fontSize*0.03);
         ctx.setLineDash([10,6]);
