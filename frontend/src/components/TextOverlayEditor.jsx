@@ -267,10 +267,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
 
   // ── DRAG & PINCH ─────────────────────────────────────────────
   function hitTest(box,cx,cy,CW,CH){
-    const posX=Math.round((box.xPct/100)*CW);
-    const posY=Math.round((box.yPct/100)*CH);
-    const pad=Math.round((box.fontSizePct??0.074)*CW*2);
-    return cx>=posX-pad&&cx<=posX+pad&&cy>=posY-pad&&cy<=posY+pad;
+    const posX=(box.xPct/100)*CW;
+    const posY=(box.yPct/100)*CH;
+    // Use 15% of video width as hit radius — very generous for finger tapping
+    const padX = CW * 0.15;
+    const padY = CH * 0.08;
+    return cx>=posX-padX && cx<=posX+padX && cy>=posY-padY && cy<=posY+padY;
   }
 
   function s2c(sx,sy){
@@ -301,6 +303,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         return;
       }
     }
+    // Fallback: if no hit found but there's only one box, start dragging it
+    if(stateRef.current.boxes.length === 1){
+      const box = stateRef.current.boxes[0];
+      gestureRef.current={mode:'drag',sx:e.clientX,sy:e.clientY,ox:box.xPct,oy:box.yPct,id:box.id,moved:false};
+      return;
+    }
     gestureRef.current=null;
   }
 
@@ -310,7 +318,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     const g=gestureRef.current; if(!g) return;
     if(g.mode==='drag'){
       const dx=e.clientX-g.sx,dy=e.clientY-g.sy;
-      if(Math.abs(dx)>3||Math.abs(dy)>3) g.moved=true;
+      if(Math.abs(dx)>1||Math.abs(dy)>1) g.moved=true;
       if(!g.moved) return;
       const r=canvasRef.current?.getBoundingClientRect(); if(!r) return;
       updateBox(g.id,{
