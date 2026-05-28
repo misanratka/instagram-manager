@@ -136,7 +136,7 @@ function buildCoverBox(overlay) {
   return filter;
 }
 
-function buildSingleLine(overlay, yOffsetPx) {
+function buildSingleLine(overlay, yOffsetExpr) {
   const size = overlay.fontSize || SIZES[overlay.size] || 44;
   const escaped = overlay.text
     .replace(/\\/g, '\\\\')
@@ -145,25 +145,21 @@ function buildSingleLine(overlay, yOffsetPx) {
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]');
 
-  const align = overlay.align || 'center';
-
   let xExpr, yExpr;
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
     const xp = (Number(overlay.xPct) / 100).toFixed(6);
     const yp = (Number(overlay.yPct) / 100).toFixed(6);
-    // xPct is the CENTER anchor point (matches canvas editor exactly)
-    // text_w/2 shifts so text is centered at xPct
-    if (align === 'left')       xExpr = `(w*${xp})-(text_w/2)`;
-    else if (align === 'right') xExpr = `(w*${xp})-(text_w/2)`;
-    else                        xExpr = `(w*${xp})-(text_w/2)`;
+    // x: center text at xPct of video width (matches canvas exactly)
+    xExpr = `(w*${xp})-(text_w/2)`;
+    // y: center text block at yPct of video height + line offset
     const yBase = `(h*${yp})`;
-    yExpr = yOffsetPx === 0
+    yExpr = (!yOffsetExpr || yOffsetExpr === 0)
       ? `${yBase}-(text_h/2)`
-      : `${yBase}+(${yOffsetPx})-(text_h/2)`;
+      : `${yBase}+(${yOffsetExpr})-(text_h/2)`;
   } else {
     const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
     xExpr = pos.x;
-    yExpr = yOffsetPx === 0 ? pos.y : `(${pos.y})+(${yOffsetPx})`;
+    yExpr = (!yOffsetExpr || yOffsetExpr === 0) ? pos.y : `(${pos.y})+(${yOffsetExpr})`;
   }
 
   let fontcolor, boxPart;
@@ -197,15 +193,19 @@ function buildDrawtext(overlay) {
   if (overlay.text.trim() === 'Tap to type') return null;
 
   const lines = overlay.text.split('\n');
-  const size  = overlay.fontSize || SIZES[overlay.size] || 44;
-  const lineH = Math.round(size * 1.4);
+  const fontSizePct = overlay.fontSizePct || 0.074;
+  // lineH expressed as fraction of video width (same unit as fontsize=w*fontSizePct)
+  // lineH = fontsize * 1.3 = w*fontSizePct*1.3
+  const lineHFrac = fontSizePct * 1.3;
 
   const filters = lines.map((lineText, i) => {
     const text = lineText || (overlay.bg !== 'none' ? ' ' : null);
     if (!text) return null;
-    // Center the whole block at the anchor point; each line offset from that center
-    const yOffsetPx = Math.round((i - (lines.length - 1) / 2) * lineH);
-    return buildSingleLine({ ...overlay, text }, yOffsetPx);
+    // yOffset as FFmpeg expression in output pixels: (i - center) * w*lineHFrac
+    // This matches canvas: startY + i*lineH where lineH=fontSize*1.3
+    const offset = i - (lines.length - 1) / 2;
+    const yOffsetExpr = offset === 0 ? 0 : `${offset.toFixed(4)}*w*${lineHFrac.toFixed(6)}`;
+    return buildSingleLine({ ...overlay, text }, yOffsetExpr);
   }).filter(Boolean);
 
   return filters.join(',') || null;
