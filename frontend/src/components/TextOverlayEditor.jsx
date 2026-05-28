@@ -109,7 +109,10 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         bg: b.bg, bgW: b.bgW, bgH: b.bgH, align: b.align, widthPct: 80,
       };
     });
-    onChange(out.filter(b => b.text.trim()));
+    const filtered = out.filter(b => b.text.trim());
+    // Debug: log what's being sent to backend
+    filtered.forEach(b => console.log(`TEXT OVERLAY: "${b.text.slice(0,20)}" xPct=${b.xPct?.toFixed(1)} yPct=${b.yPct?.toFixed(1)} fontSizePct=${b.fontSizePct?.toFixed(4)} vidW=${vidW} vidH=${vidH}`));
+    onChange(filtered);
   },[boxes, vidW, vidH]); // eslint-disable-line
 
   const updateBox = useCallback((id,patch)=>{
