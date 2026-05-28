@@ -44,8 +44,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     id:        raw?.id        ?? uid(),
     text:      raw?.text      ?? '',
     fontSizePct: raw?.fontSizePct ?? 0.074,
-    xPct:      raw?.xPct ?? (raw?.posX != null ? (raw.posX / 1080) * 100 : 10),
-    yPct:      raw?.yPct ?? (raw?.posY != null ? (raw.posY / 1920) * 100 : 12),
+    xPct:      raw?.xPct ?? (raw?.posX != null ? (raw.posX / 1080) * 100 : 50),
+    yPct:      raw?.yPct ?? (raw?.posY != null ? (raw.posY / 1920) * 100 : 15),
     fontIdx:   raw?.fontIdx   ?? 0,
     textColor: raw?.textColor ?? '#FFFFFF',
     bg:        raw?.bg        ?? 'none',
@@ -80,13 +80,20 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     if(!vid) return;
     function onMeta(){
       if(vid.videoWidth && vid.videoHeight){
+        console.log('VIDEO LOADED:', vid.videoWidth, 'x', vid.videoHeight);
         setVidW(vid.videoWidth);
         setVidH(vid.videoHeight);
       }
     }
     vid.addEventListener('loadedmetadata', onMeta);
+    // Try multiple times in case video loads before effect runs
     if(vid.readyState >= 1) onMeta();
-    return ()=>vid.removeEventListener('loadedmetadata', onMeta);
+    const t1 = setTimeout(()=>{ if(vid.videoWidth) onMeta(); }, 500);
+    const t2 = setTimeout(()=>{ if(vid.videoWidth) onMeta(); }, 1500);
+    return ()=>{
+      vid.removeEventListener('loadedmetadata', onMeta);
+      clearTimeout(t1); clearTimeout(t2);
+    };
   },[videoSrc]);
 
   // Emit to parent — xPct/yPct are % of actual video dimensions
@@ -120,7 +127,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   },[]);
 
   const addBox = ()=>{
-    const nb = makeBox({ id:uid(), xPct:10, yPct:10 });
+    const nb = makeBox({ id:uid(), xPct:50, yPct:20 });
     setBoxes(prev=>[...prev, nb]);
     setActiveId(nb.id);
   };
