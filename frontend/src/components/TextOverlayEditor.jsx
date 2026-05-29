@@ -58,14 +58,14 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const [boxes,    setBoxes]    = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
   const [activeId, setActiveId] = useState(() => textBoxes?.[0]?.id ?? boxes[0]?.id);
   // Actual video pixel dimensions - canvas matches this exactly
-  const [vidW, setVidW] = useState(1080);
-  const [vidH, setVidH] = useState(1920);
+  const [vidW, setVidW] = useState(720); // 720p until actual dims load
+  const [vidH, setVidH] = useState(1280);
 
   const canvasRef  = useRef(null);
   const videoRef   = useRef(null);
   const gestureRef = useRef(null);
   const ptrsRef    = useRef(new Map());
-  const stateRef   = useRef({ boxes, activeId, vidW: 1080, vidH: 1920 });
+  const stateRef   = useRef({ boxes, activeId, vidW: 1080, vidH: 1280 }); // 720p default
   const sliderDrag = useRef(false);
   const sliderStart= useRef(null);
   const [screenW]  = useState(window.innerWidth);
@@ -81,18 +81,21 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     function onMeta(){
       if(vid.videoWidth && vid.videoHeight){
         console.log('VIDEO LOADED:', vid.videoWidth, 'x', vid.videoHeight);
+        // Only update if we get real dimensions (not default 1080x1920)
         setVidW(vid.videoWidth);
         setVidH(vid.videoHeight);
+        // Also update stateRef immediately so draw uses correct dims right away
+        stateRef.current = { ...stateRef.current, vidW: vid.videoWidth, vidH: vid.videoHeight };
       }
     }
     vid.addEventListener('loadedmetadata', onMeta);
-    // Try multiple times in case video loads before effect runs
+    vid.addEventListener('loadeddata', onMeta);
     if(vid.readyState >= 1) onMeta();
-    const t1 = setTimeout(()=>{ if(vid.videoWidth) onMeta(); }, 500);
-    const t2 = setTimeout(()=>{ if(vid.videoWidth) onMeta(); }, 1500);
+    const t = setTimeout(()=>{ if(vid.videoWidth) onMeta(); }, 300);
     return ()=>{
       vid.removeEventListener('loadedmetadata', onMeta);
-      clearTimeout(t1); clearTimeout(t2);
+      vid.removeEventListener('loadeddata', onMeta);
+      clearTimeout(t);
     };
   },[videoSrc]);
 
@@ -117,6 +120,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       };
     });
     const filtered = out.filter(b => b.text.trim());
+    // Only emit if we have real video dimensions
+    if(!filtered.length) return;
     // Debug: log what's being sent to backend
     filtered.forEach(b => console.log(`TEXT OVERLAY: "${b.text.slice(0,20)}" xPct=${b.xPct?.toFixed(1)} yPct=${b.yPct?.toFixed(1)} fontSizePct=${b.fontSizePct?.toFixed(4)} vidW=${vidW} vidH=${vidH}`));
     onChange(filtered);
