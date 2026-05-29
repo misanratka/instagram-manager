@@ -2,22 +2,24 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // Canvas internal res = actual video dimensions (set on video load)
 // This ensures xPct/yPct match 1:1 with FFmpeg's iw/ih
+
 const FONTS = [
-  { label: 'Anek Bangla',   value: "'Anek Bangla', sans-serif",        weight: '300', style: 'normal' },
-  { label: 'Albert Sans',   value: "'Albert Sans', sans-serif",         weight: '700', style: 'normal' },
-  { label: 'Almoneda',      value: "'Playfair Display', serif",         weight: '700', style: 'italic' },
-  { label: 'Classic',       value: "'Oswald', sans-serif",              weight: '700', style: 'normal' },
-  { label: 'Classic Med',   value: "'Oswald', sans-serif",              weight: '400', style: 'normal' },
-  { label: 'Classic Light', value: "'Oswald', sans-serif",              weight: '300', style: 'normal' },
-  { label: 'Modern',        value: "'Bebas Neue', sans-serif",          weight: '400', style: 'normal' },
-  { label: 'Marker',        value: "'Permanent Marker', cursive",       weight: '400', style: 'normal' },
-  { label: 'Pacifico',      value: "'Pacifico', cursive",               weight: '400', style: 'normal' },
-  { label: 'Script',        value: "'Dancing Script', cursive",         weight: '700', style: 'normal' },
-  { label: 'Exo Light',     value: "'Exo 2', sans-serif",              weight: '200', style: 'normal' },
-  { label: 'Rajdhani',      value: "'Rajdhani', sans-serif",            weight: '700', style: 'normal' },
+  { label: 'Anek Bangla',   value: "'Anek Bangla', sans-serif",      weight: '300', style: 'normal' },
+  { label: 'Albert Sans',   value: "'Albert Sans', sans-serif",       weight: '700', style: 'normal' },
+  { label: 'Almoneda',      value: "'Playfair Display', serif",       weight: '700', style: 'italic' },
+  { label: 'Classic',       value: "'Oswald', sans-serif",            weight: '700', style: 'normal' },
+  { label: 'Classic Med',   value: "'Oswald', sans-serif",            weight: '400', style: 'normal' },
+  { label: 'Classic Light', value: "'Oswald', sans-serif",            weight: '300', style: 'normal' },
+  { label: 'Modern',        value: "'Bebas Neue', sans-serif",        weight: '400', style: 'normal' },
+  { label: 'Marker',        value: "'Permanent Marker', cursive",     weight: '400', style: 'normal' },
+  { label: 'Pacifico',      value: "'Pacifico', cursive",             weight: '400', style: 'normal' },
+  { label: 'Script',        value: "'Dancing Script', cursive",       weight: '700', style: 'normal' },
+  { label: 'Exo Light',     value: "'Exo 2', sans-serif",             weight: '200', style: 'normal' },
+  { label: 'Rajdhani',      value: "'Rajdhani', sans-serif",          weight: '700', style: 'normal' },
 ];
 
 const COLORS = ['#FFFFFF','#000000','#FFEE00','#FF3B30','#FF9500','#34C759','#007AFF','#FF2D55','#AF52DE','#FF6B35'];
+
 const BGS = [
   { v:'none',   bg:'transparent', fg:'#fff' },
   { v:'black',  bg:'#000000',     fg:'#fff' },
@@ -41,34 +43,31 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   injectFonts();
 
   const makeBox = (raw) => ({
-    id:        raw?.id        ?? uid(),
-    text:      raw?.text      ?? '',
-    fontSizePct: raw?.fontSizePct ?? 0.074,
-    xPct:      raw?.xPct ?? (raw?.posX != null ? (raw.posX / 1080) * 100 : 50),
-    yPct:      raw?.yPct ?? (raw?.posY != null ? (raw.posY / 1920) * 100 : 15),
-    fontIdx:   raw?.fontIdx   ?? 0,
-    textColor: raw?.textColor ?? '#FFFFFF',
-    bg:        raw?.bg        ?? 'none',
-    // bgW/bgH: background block size as % of video (for covering existing text)
-    bgW:       raw?.bgW       ?? null, // null = auto (text width + padding)
-    bgH:       raw?.bgH       ?? null, // null = auto (text height + padding)
-    align:     raw?.align     ?? 'left',
+    id:           raw?.id ?? uid(),
+    text:         raw?.text ?? '',
+    fontSizePct:  raw?.fontSizePct ?? 0.074,
+    xPct:         raw?.xPct ?? (raw?.posX != null ? (raw.posX / 1080) * 100 : 50),
+    yPct:         raw?.yPct ?? (raw?.posY != null ? (raw.posY / 1920) * 100 : 15),
+    fontIdx:      raw?.fontIdx ?? 0,
+    textColor:    raw?.textColor ?? '#FFFFFF',
+    bg:           raw?.bg ?? 'none',
+    align:        raw?.align ?? 'center', // FIX: default center so editor+video match
   });
 
-  const [boxes,    setBoxes]    = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
+  const [boxes, setBoxes]   = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
   const [activeId, setActiveId] = useState(() => textBoxes?.[0]?.id ?? boxes[0]?.id);
-  // Actual video pixel dimensions - canvas matches this exactly
-  const [vidW, setVidW] = useState(720); // 720p until actual dims load
+
+  const [vidW, setVidW] = useState(720);
   const [vidH, setVidH] = useState(1280);
 
-  const canvasRef  = useRef(null);
-  const videoRef   = useRef(null);
-  const gestureRef = useRef(null);
-  const ptrsRef    = useRef(new Map());
-  const stateRef   = useRef({ boxes, activeId, vidW: 1080, vidH: 1280 }); // 720p default
-  const sliderDrag = useRef(false);
-  const sliderStart= useRef(null);
-  const [screenW]  = useState(window.innerWidth);
+  const canvasRef   = useRef(null);
+  const videoRef    = useRef(null);
+  const gestureRef  = useRef(null);
+  const ptrsRef     = useRef(new Map());
+  const stateRef    = useRef({ boxes, activeId, vidW: 720, vidH: 1280 });
+  const sliderDrag  = useRef(false);
+  const sliderStart = useRef(null);
+  const [screenW]   = useState(window.innerWidth);
 
   useEffect(()=>{
     stateRef.current = { boxes, activeId, vidW, vidH };
@@ -80,11 +79,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     if(!vid) return;
     function onMeta(){
       if(vid.videoWidth && vid.videoHeight){
-        console.log('VIDEO LOADED:', vid.videoWidth, 'x', vid.videoHeight);
-        // Only update if we get real dimensions (not default 1080x1920)
         setVidW(vid.videoWidth);
         setVidH(vid.videoHeight);
-        // Also update stateRef immediately so draw uses correct dims right away
         stateRef.current = { ...stateRef.current, vidW: vid.videoWidth, vidH: vid.videoHeight };
       }
     }
@@ -99,8 +95,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     };
   },[videoSrc]);
 
-  // Emit to parent — xPct/yPct are % of actual video dimensions
-  // FFmpeg uses same: x = iw * xPct/100, y = ih * yPct/100
+  // Emit to parent
+  // xPct/yPct are % of actual video dimensions — top-left anchor for FFmpeg
   useEffect(()=>{
     const out = boxes.map(b => {
       const font = FONTS[b.fontIdx??0];
@@ -110,20 +106,18 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         lines: b.text.split('\n'),
         fontSize: fontSizePx,
         fontSizePct: b.fontSizePct,
+        // xPct/yPct = center of text block (canvas draws from center; FFmpeg adjusts by half-width)
         posX: Math.round((b.xPct/100)*vidW),
         posY: Math.round((b.yPct/100)*vidH),
         xPct: b.xPct, yPct: b.yPct,
         font: font.value.replace(/'/g,'').split(',')[0].trim(),
         fontFamily: font.value, fontWeight: font.weight,
         textColor: b.textColor, colorHex: b.textColor,
-        bg: b.bg, bgW: b.bgW, bgH: b.bgH, align: b.align, widthPct: 80,
+        bg: b.bg, align: b.align, widthPct: 80,
       };
     });
     const filtered = out.filter(b => b.text.trim());
-    // Only emit if we have real video dimensions
     if(!filtered.length) return;
-    // Debug: log what's being sent to backend
-    filtered.forEach(b => console.log(`TEXT OVERLAY: "${b.text.slice(0,20)}" xPct=${b.xPct?.toFixed(1)} yPct=${b.yPct?.toFixed(1)} fontSizePct=${b.fontSizePct?.toFixed(4)} vidW=${vidW} vidH=${vidH}`));
     onChange(filtered);
   },[boxes, vidW, vidH]); // eslint-disable-line
 
@@ -148,10 +142,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const hasBg = ab?.bg !== 'none';
 
   // ── DISPLAY SIZE ─────────────────────────────────────────────
-  // Canvas displayed at screen width, height scaled to video ratio
-  // This gives exact same proportions as actual video
   const maxVideoH = Math.round(window.innerHeight * 0.56);
-  let dispW = screenW - 38; // minus slider width
+  let dispW = screenW - 38;
   let dispH = Math.round(dispW * vidH / vidW);
   if(dispH > maxVideoH){
     dispH = maxVideoH;
@@ -159,8 +151,9 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   }
 
   // ── CANVAS DRAW ──────────────────────────────────────────────
-  // Canvas internal = actual video dimensions (vidW x vidH)
-  // No black bars — video fills entire canvas perfectly
+  // FIX: textAlign now uses box.align (left/center/right) consistently
+  // posX is the anchor point — left edge for left, center for center, right edge for right
+  // This exactly matches what FFmpeg does server-side
   const draw = useCallback(()=>{
     const canvas = canvasRef.current;
     if(!canvas) return;
@@ -170,84 +163,96 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     ctx.fillStyle = '#000';
     ctx.fillRect(0,0,CW,CH);
 
-    // Draw video — fills entire canvas (no letterbox)
     const vid = videoRef.current;
     if(vid && vid.readyState>=2){
-      try{
-        ctx.drawImage(vid, 0, 0, CW, CH);
-      }catch(_){}
+      try{ ctx.drawImage(vid, 0, 0, CW, CH); }catch(_){}
     }
 
     boxes.forEach(b=>{
       if(!b.text.trim()) return;
       const isActive = b.id===activeId;
       const f = FONTS[b.fontIdx??0];
-      // fontSize in pixels relative to canvas width
       const fontSize = Math.round(b.fontSizePct * CW);
       const posX = Math.round((b.xPct/100)*CW);
       const posY = Math.round((b.yPct/100)*CH);
-      const maxW = CW * 0.88;
+      const align = b.align ?? 'center';
+      const maxW  = CW * 0.88;
 
-      ctx.font=`${f.weight} ${fontSize}px ${f.value}`;
-      ctx.textBaseline='middle';
-      ctx.textAlign='center'; // posX is always center anchor
+      ctx.font = `${f.weight} ${fontSize}px ${f.value}`;
+      ctx.textBaseline = 'middle';
+      // FIX: use actual align, not hardcoded 'center'
+      ctx.textAlign = align;
 
       // Wrap text
-      const lines=[];
+      const lines = [];
       b.text.split('\n').forEach(para=>{
-        if(!para){lines.push('');return;}
-        const words=para.split(' ');
-        let cur='';
+        if(!para){ lines.push(''); return; }
+        const words = para.split(' ');
+        let cur = '';
         words.forEach(w=>{
-          const test=cur?cur+' '+w:w;
-          if(ctx.measureText(test).width>maxW&&cur){lines.push(cur);cur=w;}
-          else cur=test;
+          const test = cur ? cur+' '+w : w;
+          if(ctx.measureText(test).width > maxW && cur){ lines.push(cur); cur=w; }
+          else cur = test;
         });
-        if(cur)lines.push(cur);
+        if(cur) lines.push(cur);
       });
 
-      const lineH=fontSize*1.3;
-      const totalH=lines.length*lineH;
-      const startY=posY-totalH/2+lineH/2;
-      const anchorX=posX; // always center — matches FFmpeg x=w*xPct-(text_w/2)
-      const bgColor=b.bg==='black'?'#000':b.bg==='white'?'#fff':b.bg==='yellow'?'#FFEE00':null;
-      const fgColor=(b.bg==='white'||b.bg==='yellow')?'#000':b.textColor;
+      const lineH  = fontSize * 1.3;
+      const totalH = lines.length * lineH;
+      const startY = posY - totalH/2 + lineH/2;
 
+      const bgColor = b.bg==='black'?'#000':b.bg==='white'?'#fff':b.bg==='yellow'?'#FFEE00':null;
+      const fgColor = (b.bg==='white'||b.bg==='yellow')?'#000':b.textColor;
+
+      // FIX: BG box always auto-sizes to actual text width — no manual bgW/bgH
       if(bgColor){
-        const maxTw=Math.max(...lines.map(l=>ctx.measureText(l).width));
-        const pad=Math.round(fontSize*0.2);
-        // Use custom bgW/bgH if set (for covering existing video text)
-        const bWidth  = b.bgW ? Math.round((b.bgW/100)*CW)  : maxTw + pad*2;
-        const bHeight = b.bgH ? Math.round((b.bgH/100)*CH)  : totalH + pad*1.2;
-        const bgX = posX - bWidth/2;
+        // Measure actual max line width
+        const maxTw = Math.max(...lines.map(l=>ctx.measureText(l).width));
+        const pad   = Math.round(fontSize * 0.25);
+        const bWidth  = maxTw + pad * 2;
+        const bHeight = totalH + pad * 1.2;
+
+        // Align the BG box to match text alignment
+        let bgX;
+        if(align === 'center')      bgX = posX - bWidth/2;
+        else if(align === 'left')   bgX = posX - pad;
+        else                        bgX = posX - bWidth + pad; // right
+
         const bgY = posY - bHeight/2;
-        ctx.fillStyle=bgColor;
+        ctx.fillStyle = bgColor;
         ctx.beginPath();
         ctx.roundRect(bgX, bgY, bWidth, bHeight, Math.round(fontSize*0.08));
         ctx.fill();
       }
 
       lines.forEach((line,i)=>{
-        ctx.fillStyle=fgColor;
-        ctx.fillText(line,anchorX,startY+i*lineH);
+        ctx.fillStyle = fgColor;
+        ctx.fillText(line, posX, startY + i*lineH);
       });
 
+      // Active selection outline
       if(isActive){
-        const maxTw=Math.max(...lines.map(l=>ctx.measureText(l).width),60);
-        const pad=Math.round(fontSize*0.4);
-        const bx=posX-maxTw/2-pad;
-        ctx.strokeStyle='rgba(255,255,255,0.85)';
-        ctx.lineWidth=Math.max(3, fontSize*0.03);
+        ctx.save();
+        const maxTw = Math.max(...lines.map(l=>ctx.measureText(l).width), 60);
+        const pad   = Math.round(fontSize * 0.4);
+        let bx;
+        if(align === 'center')      bx = posX - maxTw/2 - pad;
+        else if(align === 'left')   bx = posX - pad;
+        else                        bx = posX - maxTw - pad;
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth   = Math.max(3, fontSize*0.03);
         ctx.setLineDash([10,6]);
-        ctx.strokeRect(bx,posY-totalH/2-pad/2,maxTw+pad*2,totalH+pad);
+        ctx.strokeRect(bx, posY-totalH/2-pad/2, maxTw+pad*2, totalH+pad);
         ctx.setLineDash([]);
+        ctx.restore();
       }
     });
   },[]);
 
   useEffect(()=>{
     let raf;
-    const loop=()=>{draw();raf=requestAnimationFrame(loop);};
+    const loop=()=>{ draw(); raf=requestAnimationFrame(loop); };
     raf=requestAnimationFrame(loop);
     return()=>cancelAnimationFrame(raf);
   },[draw]);
@@ -255,19 +260,20 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   // ── SLIDER — adjusts fontSizePct ─────────────────────────────
   function startSlider(e){
     e.preventDefault();
-    sliderDrag.current=true;
-    sliderStart.current={y:e.touches?.[0]?.clientY??e.clientY, startPct:ab?.fontSizePct??0.074};
+    sliderDrag.current  = true;
+    sliderStart.current = { y:e.touches?.[0]?.clientY??e.clientY, startPct:ab?.fontSizePct??0.074 };
   }
+
   useEffect(()=>{
     function onMove(e){
       if(!sliderDrag.current || !sliderStart.current) return;
       e.preventDefault();
-      const curY=e.touches?.[0]?.clientY??e.clientY;
-      const dy=sliderStart.current.y-curY;
-      const newPct=clamp(sliderStart.current.startPct+dy*0.0005, 0.02, 0.20);
+      const curY   = e.touches?.[0]?.clientY??e.clientY;
+      const dy     = sliderStart.current.y - curY;
+      const newPct = clamp(sliderStart.current.startPct + dy*0.0005, 0.02, 0.20);
       updateBox(stateRef.current.activeId,{fontSizePct:newPct});
     }
-    function onEnd(){sliderDrag.current=false;}
+    function onEnd(){ sliderDrag.current=false; }
     window.addEventListener('touchmove',onMove,{passive:false});
     window.addEventListener('touchend',onEnd);
     window.addEventListener('mousemove',onMove);
@@ -284,7 +290,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   function hitTest(box,cx,cy,CW,CH){
     const posX=(box.xPct/100)*CW;
     const posY=(box.yPct/100)*CH;
-    // Use 15% of video width as hit radius — very generous for finger tapping
     const padX = CW * 0.15;
     const padY = CH * 0.08;
     return cx>=posX-padX && cx<=posX+padX && cy>=posY-padY && cy<=posY+padY;
@@ -318,9 +323,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         return;
       }
     }
-    // Fallback: if no hit found but there's only one box, start dragging it
-    if(stateRef.current.boxes.length === 1){
-      const box = stateRef.current.boxes[0];
+    if(stateRef.current.boxes.length===1){
+      const box=stateRef.current.boxes[0];
       gestureRef.current={mode:'drag',sx:e.clientX,sy:e.clientY,ox:box.xPct,oy:box.yPct,id:box.id,moved:false};
       return;
     }
@@ -332,13 +336,13 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     if(ptr){ptr.x=e.clientX;ptr.y=e.clientY;}
     const g=gestureRef.current; if(!g) return;
     if(g.mode==='drag'){
-      const dx=e.clientX-g.sx,dy=e.clientY-g.sy;
+      const dx=e.clientX-g.sx, dy=e.clientY-g.sy;
       if(Math.abs(dx)>1||Math.abs(dy)>1) g.moved=true;
       if(!g.moved) return;
       const r=canvasRef.current?.getBoundingClientRect(); if(!r) return;
       updateBox(g.id,{
-        xPct:clamp(g.ox+(dx/r.width)*100,0,98),
-        yPct:clamp(g.oy+(dy/r.height)*100,0,98),
+        xPct: clamp(g.ox+(dx/r.width)*100,  2, 98),
+        yPct: clamp(g.oy+(dy/r.height)*100, 2, 98),
       });
     } else if(g.mode==='pinch'){
       const pts=[...ptrsRef.current.values()];
@@ -355,9 +359,8 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   }
 
   const sliderPct  = 1-((ab?.fontSizePct??0.074)-0.02)/(0.18-0.02);
-  const alignCycle = ()=>updateBox(ab?.id,{align:{left:'center',center:'right',right:'left'}[ab?.align??'left']});
+  const alignCycle = ()=>updateBox(ab?.id,{align:{left:'center',center:'right',right:'left'}[ab?.align??'center']});
   const bgCycle    = ()=>updateBox(ab?.id,{bg:BGS[(BGS.findIndex(b=>b.v===(ab?.bg??'none'))+1)%BGS.length].v});
-  const fontSizePx = Math.round((ab?.fontSizePct??0.074)*vidW);
 
   return(
     <div style={S.root}>
@@ -369,12 +372,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       <div style={S.topBar}>
         <button onClick={onClose} style={S.btnDone}>Done</button>
         <div style={S.topMid}>
-          <button onClick={alignCycle} style={S.iconBtn}><AlignIcon align={ab?.align??'left'}/></button>
+          <button onClick={alignCycle} style={S.iconBtn}><AlignIcon align={ab?.align??'center'}/></button>
           <button onClick={bgCycle} style={{
             ...S.iconBtn,
-            background:hasBg?bgObj.bg:'rgba(255,255,255,0.1)',
-            border:'1.5px solid rgba(255,255,255,0.3)',
-            color:bgObj.fg,fontSize:10,fontWeight:800,
+            background: hasBg ? bgObj.bg : 'rgba(255,255,255,0.1)',
+            border:  '1.5px solid rgba(255,255,255,0.3)',
+            color:   bgObj.fg, fontSize:10, fontWeight:800,
           }}>BG</button>
           <button onClick={addBox} style={S.addBtn}>+ Text</button>
         </div>
@@ -387,12 +390,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         <div style={{...S.sliderCol, height:dispH}} onMouseDown={startSlider} onTouchStart={startSlider}>
           <span style={S.sA}>A</span>
           <div style={S.sTrack}>
-            <div style={{...S.sThumb,top:`${sliderPct*78+4}%`}}/>
+            <div style={{...S.sThumb, top:`${sliderPct*78+4}%`}}/>
           </div>
           <span style={S.sA2}>A</span>
         </div>
 
-        {/* Canvas — exact video ratio, no black bars */}
+        {/* Canvas */}
         <div style={{width:dispW, height:dispH, position:'relative', flexShrink:0, background:'#000', overflow:'hidden'}}>
           <canvas
             ref={canvasRef}
@@ -406,13 +409,12 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
 
       {/* CONTROLS */}
       <div style={S.controls}>
-        {/* Text tabs */}
         {boxes.length>1 && (
           <div style={S.tabRow}>
             {boxes.map((b,i)=>(
               <button key={b.id} onClick={()=>setActiveId(b.id)} style={{
                 ...S.tab,
-                color:b.id===activeId?'#fff':'#555',
+                color:       b.id===activeId?'#fff':'#555',
                 borderBottom:b.id===activeId?'2px solid #fff':'2px solid transparent',
               }}>Text {i+1}</button>
             ))}
@@ -427,9 +429,9 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
           {COLORS.map(c=>(
             <button key={c} onClick={()=>updateBox(ab?.id,{textColor:c})} style={{
               ...S.dot,
-              background:c,
-              border:ab?.textColor===c?'3px solid #fff':c==='#FFFFFF'?'1.5px solid #555':'2px solid transparent',
-              transform:ab?.textColor===c?'scale(1.28)':'scale(1)',
+              background: c,
+              border:     ab?.textColor===c?'3px solid #fff':c==='#FFFFFF'?'1.5px solid #555':'2px solid transparent',
+              transform:  ab?.textColor===c?'scale(1.28)':'scale(1)',
             }}/>
           ))}
         </div>
@@ -442,48 +444,28 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
             rows={2}
             style={{
               ...S.ta,
-              fontFamily:font?.value,
-              fontWeight:font?.weight,
-              fontStyle:font?.style,
-              textAlign:ab?.align??'left',
+              fontFamily: font?.value,
+              fontWeight: font?.weight,
+              fontStyle:  font?.style,
+              textAlign:  ab?.align??'center',
             }}
             placeholder="Type your text..."
             autoFocus
           />
           <button onClick={alignCycle} style={S.alignBtn}>
-            <AlignIcon align={ab?.align??'left'}/>
+            <AlignIcon align={ab?.align??'center'}/>
           </button>
         </div>
-
-        {/* BG Size controls — only shown when BG is active */}
-        {hasBg && (
-          <div style={S.bgSizeRow}>
-            <span style={S.bgSizeLabel}>BG Width</span>
-            <input type="range" min={5} max={95} step={1}
-              value={ab?.bgW ?? 40}
-              onChange={e => updateBox(ab?.id, { bgW: Number(e.target.value) })}
-              style={S.bgSlider}
-            />
-            <span style={S.bgSizeVal}>{ab?.bgW ?? 40}%</span>
-            <span style={{...S.bgSizeLabel, marginLeft:10}}>Height</span>
-            <input type="range" min={3} max={60} step={1}
-              value={ab?.bgH ?? 12}
-              onChange={e => updateBox(ab?.id, { bgH: Number(e.target.value) })}
-              style={S.bgSlider}
-            />
-            <span style={S.bgSizeVal}>{ab?.bgH ?? 12}%</span>
-          </div>
-        )}
 
         {/* Font strip */}
         <div style={S.fontRow}>
           {FONTS.map((f,i)=>(
             <button key={f.label} onClick={()=>updateBox(ab?.id,{fontIdx:i})} style={{
               ...S.fontBtn,
-              fontFamily:f.value,fontWeight:f.weight,fontStyle:f.style,
-              color:(ab?.fontIdx??0)===i?'#fff':'#666',
+              fontFamily:  f.value, fontWeight: f.weight, fontStyle: f.style,
+              color:       (ab?.fontIdx??0)===i?'#fff':'#666',
               borderBottom:(ab?.fontIdx??0)===i?'2px solid #fff':'2px solid transparent',
-              background:(ab?.fontIdx??0)===i?'rgba(255,255,255,0.08)':'transparent',
+              background:  (ab?.fontIdx??0)===i?'rgba(255,255,255,0.08)':'transparent',
             }}>{f.label}</button>
           ))}
         </div>
@@ -501,33 +483,29 @@ function AlignIcon({align}){
 }
 
 const S = {
-  root:     { position:'fixed', inset:0, zIndex:9999, background:'#1C1C1E', display:'flex', flexDirection:'column', fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif', overflow:'hidden' },
-  topBar:   { flexShrink:0, height:52, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', paddingTop:'env(safe-area-inset-top,0px)', borderBottom:'1px solid #2C2C2E' },
-  btnDone:  { background:'transparent', border:'none', color:'#999', fontSize:15, fontWeight:600, cursor:'pointer' },
-  btnSave:  { background:'transparent', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' },
-  topMid:   { display:'flex', gap:10, alignItems:'center' },
-  iconBtn:  { width:36, height:36, borderRadius:18, background:'rgba(255,255,255,0.1)', border:'none', color:'#fff', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
-  addBtn:   { padding:'7px 16px', borderRadius:18, background:'rgba(99,102,241,0.2)', border:'1px solid rgba(99,102,241,0.4)', color:'#a5b4fc', fontSize:13, fontWeight:700, cursor:'pointer' },
-  videoRow: { flexShrink:0, display:'flex', flexDirection:'row', background:'#000', justifyContent:'center', alignItems:'center' },
-  sliderCol:{ width:38, flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'space-between', padding:'8px 0', cursor:'ns-resize', userSelect:'none', touchAction:'none', background:'#111' },
-  sA:       { fontSize:15, fontWeight:800, color:'rgba(255,255,255,0.5)', lineHeight:1 },
-  sA2:      { fontSize:8,  fontWeight:700, color:'rgba(255,255,255,0.5)', lineHeight:1 },
-  sTrack:   { flex:1, width:3, background:'rgba(255,255,255,0.15)', borderRadius:3, margin:'6px 0', position:'relative' },
-  sThumb:   { position:'absolute', width:20, height:20, background:'#fff', borderRadius:'50%', left:'50%', transform:'translate(-50%,-50%)', boxShadow:'0 2px 8px rgba(0,0,0,0.5)' },
-  controls: { flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0 },
-  tabRow:   { flexShrink:0, display:'flex', gap:4, padding:'4px 12px', alignItems:'center', overflowX:'auto' },
-  tab:      { padding:'5px 14px', fontSize:12, fontWeight:600, cursor:'pointer', border:'none', borderRadius:0, background:'transparent', flexShrink:0 },
-  removeBtn:{ marginLeft:'auto', padding:'5px 12px', borderRadius:12, border:'none', background:'rgba(239,68,68,0.15)', color:'#f87171', fontSize:11, fontWeight:700, cursor:'pointer' },
-  divider:  { height:1, background:'#2C2C2E', flexShrink:0 },
-  colorRow: { flexShrink:0, display:'flex', gap:9, padding:'10px 14px', overflowX:'auto', borderBottom:'1px solid #2C2C2E' },
-  dot:      { width:28, height:28, borderRadius:'50%', flexShrink:0, cursor:'pointer', padding:0, transition:'transform 0.12s' },
-  inputRow: { flexShrink:0, display:'flex', alignItems:'flex-start', gap:8, padding:'8px 12px 6px' },
-  ta:       { flex:1, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, padding:'10px 12px', fontSize:16, fontWeight:600, color:'#fff', outline:'none', resize:'none', lineHeight:1.4 },
-  alignBtn: { width:36, height:36, marginTop:2, flexShrink:0, background:'rgba(255,255,255,0.08)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
-  fontRow:  { flexShrink:0, display:'flex', overflowX:'auto', borderTop:'1px solid #2C2C2E', paddingBottom:'env(safe-area-inset-bottom,10px)' },
-  fontBtn:   { flexShrink:0, padding:'10px 14px', fontSize:15, cursor:'pointer', border:'none', borderRadius:0, whiteSpace:'nowrap', lineHeight:1.2, transition:'all 0.12s' },
-  bgSizeRow: { flexShrink:0, display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderTop:'1px solid #2C2C2E', background:'rgba(0,0,0,0.2)' },
-  bgSizeLabel:{ fontSize:11, color:'#888', whiteSpace:'nowrap', fontWeight:600 },
-  bgSizeVal: { fontSize:11, color:'#fff', minWidth:28, textAlign:'right', fontWeight:600 },
-  bgSlider:  { flex:1, accentColor:'#fff', cursor:'pointer', height:3 },
+  root:       { position:'fixed', inset:0, zIndex:9999, background:'#1C1C1E', display:'flex', flexDirection:'column', fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif', overflow:'hidden' },
+  topBar:     { flexShrink:0, height:52, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 16px', paddingTop:'env(safe-area-inset-top,0px)', borderBottom:'1px solid #2C2C2E' },
+  btnDone:    { background:'transparent', border:'none', color:'#999', fontSize:15, fontWeight:600, cursor:'pointer' },
+  btnSave:    { background:'transparent', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' },
+  topMid:     { display:'flex', gap:10, alignItems:'center' },
+  iconBtn:    { width:36, height:36, borderRadius:18, background:'rgba(255,255,255,0.1)', border:'none', color:'#fff', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
+  addBtn:     { padding:'7px 16px', borderRadius:18, background:'rgba(99,102,241,0.2)', border:'1px solid rgba(99,102,241,0.4)', color:'#a5b4fc', fontSize:13, fontWeight:700, cursor:'pointer' },
+  videoRow:   { flexShrink:0, display:'flex', flexDirection:'row', background:'#000', justifyContent:'center', alignItems:'center' },
+  sliderCol:  { width:38, flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'space-between', padding:'8px 0', cursor:'ns-resize', userSelect:'none', touchAction:'none', background:'#111' },
+  sA:         { fontSize:15, fontWeight:800, color:'rgba(255,255,255,0.5)', lineHeight:1 },
+  sA2:        { fontSize:8,  fontWeight:700, color:'rgba(255,255,255,0.5)', lineHeight:1 },
+  sTrack:     { flex:1, width:3, background:'rgba(255,255,255,0.15)', borderRadius:3, margin:'6px 0', position:'relative' },
+  sThumb:     { position:'absolute', width:20, height:20, background:'#fff', borderRadius:'50%', left:'50%', transform:'translate(-50%,-50%)', boxShadow:'0 2px 8px rgba(0,0,0,0.5)' },
+  controls:   { flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0 },
+  tabRow:     { flexShrink:0, display:'flex', gap:4, padding:'4px 12px', alignItems:'center', overflowX:'auto' },
+  tab:        { padding:'5px 14px', fontSize:12, fontWeight:600, cursor:'pointer', border:'none', borderRadius:0, background:'transparent', flexShrink:0 },
+  removeBtn:  { marginLeft:'auto', padding:'5px 12px', borderRadius:12, border:'none', background:'rgba(239,68,68,0.15)', color:'#f87171', fontSize:11, fontWeight:700, cursor:'pointer' },
+  divider:    { height:1, background:'#2C2C2E', flexShrink:0 },
+  colorRow:   { flexShrink:0, display:'flex', gap:9, padding:'10px 14px', overflowX:'auto', borderBottom:'1px solid #2C2C2E' },
+  dot:        { width:28, height:28, borderRadius:'50%', flexShrink:0, cursor:'pointer', padding:0, transition:'transform 0.12s' },
+  inputRow:   { flexShrink:0, display:'flex', alignItems:'flex-start', gap:8, padding:'8px 12px 6px' },
+  ta:         { flex:1, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, padding:'10px 12px', fontSize:16, fontWeight:600, color:'#fff', outline:'none', resize:'none', lineHeight:1.4 },
+  alignBtn:   { width:36, height:36, marginTop:2, flexShrink:0, background:'rgba(255,255,255,0.08)', border:'none', color:'#fff', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' },
+  fontRow:    { flexShrink:0, display:'flex', overflowX:'auto', borderTop:'1px solid #2C2C2E', paddingBottom:'env(safe-area-inset-bottom,10px)' },
+  fontBtn:    { flexShrink:0, padding:'10px 14px', fontSize:15, cursor:'pointer', border:'none', borderRadius:0, whiteSpace:'nowrap', lineHeight:1.2, transition:'all 0.12s' },
 };
