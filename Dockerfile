@@ -18,7 +18,7 @@ RUN npm run build
 # Set up backend
 WORKDIR /app
 COPY backend/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 COPY backend/ ./
  
 # Replace backend/public entirely with the fresh frontend build
