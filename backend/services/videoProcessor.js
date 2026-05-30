@@ -95,27 +95,46 @@ const NAMED_POSITIONS = {
 const SIZES = { small: 20, medium: 30, large: 44, xl: 60 };
 
 function buildCoverBox(overlay) {
-  const color = { white: 'white@1.0', light: 'white@0.82', dark: 'black@0.78', black: 'black@1.0' }[overlay.bg] || 'black@0.78';
+  const color = { white: 'white@1.0', light: 'white@0.82', dark: 'black@0.78', black: 'black@1.0', yellow: 'yellow@1.0' }[overlay.bg] || 'black@0.78';
+
+  // Use exact pixel dimensions from the browser canvas (passed as vidW/vidH)
+  const refW = overlay.vidW || null;
+  const refH = overlay.vidH || null;
+
   let xExpr, yExpr, wExpr, hExpr;
 
-  // Support bgW/bgH from editor (percentages of video dimensions)
   const hasBgSize = (overlay.bgW !== undefined && overlay.bgW !== null) ||
                     (overlay.coverWidthPct !== undefined);
   if (hasBgSize) {
-    const xc   = (overlay.xPct / 100).toFixed(6);
-    const yc   = (overlay.yPct / 100).toFixed(6);
-    const wPct = ((overlay.bgW ?? overlay.coverWidthPct ?? 40) / 100).toFixed(6);
-    const hPct = ((overlay.bgH ?? overlay.coverHeightPct ?? 12) / 100).toFixed(6);
-    wExpr = `iw*${wPct}`;
-    hExpr = `ih*${hPct}`;
-    xExpr = `iw*${xc}-(${wExpr})/2`;
-    yExpr = `ih*${yc}-(${hExpr})/2`;
+    const bgWpct = overlay.bgW ?? overlay.coverWidthPct ?? 40;
+    const bgHpct = overlay.bgH ?? overlay.coverHeightPct ?? 12;
+
+    if (refW && refH) {
+      // Absolute pixel values — exact 1:1 match with canvas
+      const bw = Math.round(bgWpct / 100 * refW);
+      const bh = Math.round(bgHpct / 100 * refH);
+      const bx = Math.round(overlay.xPct / 100 * refW - bw / 2);
+      const by = Math.round(overlay.yPct / 100 * refH - bh / 2);
+      wExpr = bw; hExpr = bh; xExpr = bx; yExpr = by;
+    } else {
+      const xc   = (overlay.xPct / 100).toFixed(6);
+      const yc   = (overlay.yPct / 100).toFixed(6);
+      const wPct = (bgWpct / 100).toFixed(6);
+      const hPct = (bgHpct / 100).toFixed(6);
+      wExpr = `iw*${wPct}`;
+      hExpr = `ih*${hPct}`;
+      xExpr = `iw*${xc}-(${wExpr})/2`;
+      yExpr = `ih*${yc}-(${hExpr})/2`;
+    }
   } else {
     const size = overlay.fontSize || SIZES[overlay.size] || 44;
     const numSpaces = Math.max((overlay.text || '').length, 1);
     const boxW = Math.round(numSpaces * size * 0.5) + 20;
     const boxH = Math.round(size * 1.6);
-    if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
+    if (refW && refH) {
+      xExpr = Math.round(overlay.xPct / 100 * refW - boxW / 2);
+      yExpr = Math.round(overlay.yPct / 100 * refH - boxH / 2);
+    } else if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
       const xc = (overlay.xPct / 100).toFixed(6);
       const yc = (overlay.yPct / 100).toFixed(6);
       xExpr = `iw*${xc}-${Math.floor(boxW / 2)}`;
@@ -145,17 +164,34 @@ function buildSingleLine(overlay, yOffsetExpr) {
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]');
 
+  // Use exact pixel dimensions from the browser canvas (passed as vidW/vidH)
+  const refW = overlay.vidW || null;
+  const refH = overlay.vidH || null;
+  const fontSizePct = overlay.fontSizePct || (size / 1080);
+
   let xExpr, yExpr;
   if (overlay.xPct !== undefined && overlay.yPct !== undefined) {
-    const xp = (Number(overlay.xPct) / 100).toFixed(6);
-    const yp = (Number(overlay.yPct) / 100).toFixed(6);
-    // x: center text at xPct of video width (matches canvas exactly)
-    xExpr = `(w*${xp})-(text_w/2)`;
-    // y: center text block at yPct of video height + line offset
-    const yBase = `(h*${yp})`;
-    yExpr = (!yOffsetExpr || yOffsetExpr === 0)
-      ? `${yBase}-(text_h/2)`
-      : `${yBase}+(${yOffsetExpr})-(text_h/2)`;
+    if (refW && refH) {
+      // Absolute pixel positions — exact 1:1 match with canvas preview
+      const px = Math.round(overlay.xPct / 100 * refW);
+      const py = Math.round(overlay.yPct / 100 * refH);
+      xExpr = `${px}-(text_w/2)`;
+      if (!yOffsetExpr || yOffsetExpr === 0) {
+        yExpr = `${py}-(text_h/2)`;
+      } else {
+        // yOffsetExpr is like "0.5*w*0.096" — evaluate using refW
+        const offsetPx = Math.round(eval(yOffsetExpr.replace(/w/g, refW)));
+        yExpr = `${py + offsetPx}-(text_h/2)`;
+      }
+    } else {
+      const xp = (Number(overlay.xPct) / 100).toFixed(6);
+      const yp = (Number(overlay.yPct) / 100).toFixed(6);
+      xExpr = `(w*${xp})-(text_w/2)`;
+      const yBase = `(h*${yp})`;
+      yExpr = (!yOffsetExpr || yOffsetExpr === 0)
+        ? `${yBase}-(text_h/2)`
+        : `${yBase}+(${yOffsetExpr})-(text_h/2)`;
+    }
   } else {
     const pos = NAMED_POSITIONS[overlay.position] || NAMED_POSITIONS['bot-center'];
     xExpr = pos.x;
@@ -175,8 +211,12 @@ function buildSingleLine(overlay, yOffsetExpr) {
     boxPart = '';
   }
 
-  const fontSizePct = overlay.fontSizePct || (size / 1080);
-  let filter = `drawtext=${FONT_ATTR}:text='${escaped}':fontsize=w*${fontSizePct.toFixed(6)}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
+  // Use absolute font size in px if refW available — matches canvas exactly
+  const fontSizeExpr = refW
+    ? Math.round(fontSizePct * refW)
+    : `w*${fontSizePct.toFixed(6)}`;
+
+  let filter = `drawtext=${FONT_ATTR}:text='${escaped}':fontsize=${fontSizeExpr}:fontcolor=${fontcolor}${boxPart}:x=${xExpr}:y=${yExpr}`;
   if (overlay.startTime > 0 || overlay.endTime > 0) {
     filter += `:enable='between(t,${overlay.startTime || 0},${overlay.endTime || 999})'`;
   }
