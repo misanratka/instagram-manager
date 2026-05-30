@@ -2,6 +2,13 @@ const BASE = (import.meta.env.VITE_BACKEND_URL ?? '') + '/api';
 
 function getUserId() {
   try {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('user_token');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      localStorage.setItem('im_user', JSON.stringify({ id: payload.id, name: payload.name, email: payload.email }));
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     const u = localStorage.getItem('im_user');
     return u ? JSON.parse(u).id : null;
   } catch { return null; }
