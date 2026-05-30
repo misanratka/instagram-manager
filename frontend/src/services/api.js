@@ -1,11 +1,19 @@
-// In production (Vercel), VITE_BACKEND_URL points to the Render backend.
-// In local dev it is empty and Vite proxies /api → localhost:3001.
 const BASE = (import.meta.env.VITE_BACKEND_URL ?? '') + '/api';
 
+function getUserId() {
+  try {
+    const u = localStorage.getItem('im_user');
+    return u ? JSON.parse(u).id : null;
+  } catch { return null; }
+}
+
 async function request(method, path, data, isForm = false) {
+  const userId = getUserId();
   const opts = {
     method,
-    headers: isForm ? {} : { 'Content-Type': 'application/json' },
+    headers: isForm
+      ? (userId ? { 'x-user-id': userId } : {})
+      : { 'Content-Type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}) },
     body: data ? (isForm ? data : JSON.stringify(data)) : undefined
   };
   const res = await fetch(`${BASE}${path}`, opts);
@@ -20,7 +28,6 @@ export const api = {
   addAccount:    (data)     => request('POST',   '/accounts', data),
   updateAccount: (id, data) => request('PUT',    `/accounts/${id}`, data),
   deleteAccount: (id)       => request('DELETE', `/accounts/${id}`),
-
   // Content processing
   processUrl:  (url, account_id) => request('POST', '/content/process-url', { url, account_id }),
   processFile: (file, account_id) => {
@@ -36,9 +43,8 @@ export const api = {
     return request('POST', `/content/attach-video/${postId}`, fd, true);
   },
   enhanceVideo:  (postId, opts) => request('POST', `/content/enhance/${postId}`, opts),
-
   // Posts
-  getPosts:    (params = {}) => {
+  getPosts: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return request('GET', `/posts${q ? '?' + q : ''}`);
   },
