@@ -11,17 +11,14 @@ const activePostPublishes = new Set();
 function getVideoPublicUrl(post) {
   const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
   const fs = require('fs');
-
   for (const localPath of [post.enhanced_video_path, post.local_video_path]) {
     if (localPath && fs.existsSync(localPath)) {
-      if (!base) throw new Error('PUBLIC_URL env var is not set. Add it in Render: PUBLIC_URL=https://instagram-manager-backend-ou34.onrender.com');
+      if (!base) throw new Error('PUBLIC_URL env var is not set.');
       return `${base}/uploads/${path.basename(localPath)}`;
     }
   }
-
   if (post.video_url && post.video_url.startsWith('http')) return post.video_url;
-
-  throw new Error('Video file not found on server (Render may have restarted and cleared uploads). Please process the video again and post immediately.');
+  throw new Error('Video file not found on server. Please process the video again.');
 }
 
 function getLocalVideoPath(post) {
@@ -32,12 +29,15 @@ function getLocalVideoPath(post) {
   throw new Error('Local video file not found for browser fallback publishing.');
 }
 
+// GET posts — filtered by user via their accounts
 router.get('/', async (req, res, next) => {
   try {
     const { account_id, status } = req.query;
+    const userId = req.headers['x-user-id'];
     let sql = `SELECT p.*, a.name as account_name, a.username
-               FROM posts p LEFT JOIN accounts a ON p.account_id = a.id WHERE 1=1`;
-    const params = [];
+               FROM posts p LEFT JOIN accounts a ON p.account_id = a.id
+               WHERE (a.user_id=$1 OR a.user_id IS NULL)`;
+    const params = [userId];
     if (account_id) { sql += ` AND p.account_id=$${params.length + 1}`; params.push(account_id); }
     if (status)     { sql += ` AND p.status=$${params.length + 1}`;     params.push(status); }
     sql += ' ORDER BY p.created_at DESC';
@@ -70,7 +70,7 @@ router.post('/:id/publish', async (req, res, next) => {
     if (post.status === 'publishing') return res.status(409).json({ error: 'This post is already publishing.' });
 
     if (!post.ig_user_id) {
-      return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Instagram User ID. Go to Accounts -> Edit to add it.` });
+      return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Instagram User ID.` });
     }
     const usesGraphApi = !!post.access_token;
     if (usesGraphApi) {
@@ -89,27 +89,21 @@ router.post('/:id/publish', async (req, res, next) => {
           tokenType: capability.tokenType,
           supportsPublishingTarget: capability.supportsPublishingTarget,
         });
-
         post._publishCapability = capability;
       } catch (err) {
         const msg = err.message || 'Instagram publishing capability check failed.';
         const lower = msg.toLowerCase();
-        // Meta system-side errors — skip pre-validation and attempt publishing anyway
         if (lower.includes('system error') || lower.includes('application info') || lower.includes('unable to debug')) {
-          logger.warn(`Meta pre-check returned system error for "${post.acct_name}", proceeding with publish attempt`, {
-            accountId: post.account_id || post.account_ref || 'no-account',
-            igUserId: post.ig_user_id, error: msg,
-          });
+          logger.warn(`Meta pre-check returned system error for "${post.acct_name}", proceeding`, { error: msg });
           post._publishCapability = null;
-          // fall through — let the actual publish call determine if the token is valid
         } else if (lower.includes('invalid') || lower.includes('expired') || lower.includes('access token')) {
-          return res.status(400).json({ error: `Token issue for "${post.acct_name}": ${msg} Reconnect this account and try again.` });
+          return res.status(400).json({ error: `Token issue for "${post.acct_name}": ${msg}` });
         } else {
           return res.status(400).json({ error: `Cannot publish for "${post.acct_name}": ${msg}` });
         }
       }
     } else if (!post.fallback_session_path) {
-      return res.status(400).json({ error: `Account "${post.acct_name}" has no Meta publishing token and no fallback Instagram session. Create a fallback session first.` });
+      return res.status(400).json({ error: `Account "${post.acct_name}" has no Meta publishing token and no fallback Instagram session.` });
     }
 
     const videoUrl = usesGraphApi ? getVideoPublicUrl(post) : null;
@@ -118,35 +112,15 @@ router.post('/:id/publish', async (req, res, next) => {
     const accountKey = post.account_id || post.account_ref || 'no-account';
     const tokenPrint = tokenFingerprint(post.access_token);
     const duplicateAccounts = await db.all(
-      `SELECT id, name, username, ig_user_id
-       FROM accounts
-       WHERE ig_user_id=$1 AND id <> $2
-       ORDER BY created_at DESC`,
+      `SELECT id, name, username, ig_user_id FROM accounts WHERE ig_user_id=$1 AND id <> $2 ORDER BY created_at DESC`,
       [post.ig_user_id, post.account_ref]
     );
 
     logger.info(`Manual publish requested for post ${post.id}`, {
-      accountId: accountKey,
-      accountName: post.acct_name,
-      username: post.username || null,
-      igUserId: post.ig_user_id,
+      accountId: accountKey, accountName: post.acct_name, igUserId: post.ig_user_id,
       publishMethod: usesGraphApi ? 'meta-graph' : 'playwright-fallback',
-      tokenFingerprint: tokenPrint,
-      duplicateIgUserRowCount: duplicateAccounts.length,
+      tokenFingerprint: tokenPrint, duplicateIgUserRowCount: duplicateAccounts.length,
     });
-
-    if (duplicateAccounts.length) {
-      logger.warn(`Duplicate Instagram account rows detected before publishing post ${post.id}`, {
-        accountId: accountKey,
-        igUserId: post.ig_user_id,
-        tokenFingerprint: tokenPrint,
-        duplicates: duplicateAccounts.map(a => ({
-          id: a.id,
-          name: a.name,
-          username: a.username,
-        })),
-      });
-    }
 
     await db.run(`UPDATE posts SET status='publishing', error_message=NULL WHERE id=$1`, [post.id]);
     activePostPublishes.add(post.id);
@@ -154,54 +128,35 @@ router.post('/:id/publish', async (req, res, next) => {
 
     const publishPromise = usesGraphApi
       ? postReel(post.ig_user_id, post.access_token, videoUrl, finalCaption, {
-          postId: post.id,
-          accountId: accountKey,
+          postId: post.id, accountId: accountKey,
           resolvedMetaAccountId: post._publishCapability?.resolvedAccountId || null,
           tokenAppId: post._publishCapability?.tokenAppId || null,
           accountType: post._publishCapability?.accountType || null,
         })
       : postReelWithBrowser({
-          id: post.account_ref,
-          username: post.username,
+          id: post.account_ref, username: post.username,
           fallback_username: post.fallback_username,
           fallback_session_path: post.fallback_session_path,
-        }, localVideoPath, finalCaption, {
-          postId: post.id,
-          accountId: accountKey,
-        }).then(() => null);
+        }, localVideoPath, finalCaption, { postId: post.id, accountId: accountKey }).then(() => null);
 
     publishPromise
       .then(mediaId => db.run(
         `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, error_message=NULL WHERE id=$3`,
         [new Date().toISOString(), mediaId, post.id]
       ))
-      .then(() => {
-        logger.info(`Manual publish completed for post ${post.id}`, {
-          accountId: accountKey,
-          igUserId: post.ig_user_id,
-          publishMethod: usesGraphApi ? 'meta-graph' : 'playwright-fallback',
-        });
-      })
+      .then(() => logger.info(`Manual publish completed for post ${post.id}`))
       .catch(err => {
         const igErr = err.response?.data?.error;
         let msg = igErr?.message || err.response?.data?.error_message || err.message;
-        if (igErr?.code === 190 || msg?.toLowerCase().includes('session has expired') || msg?.toLowerCase().includes('access token')) {
-          msg = `Token issue for account "${post.acct_name}": ${msg}. Go to Accounts and click "Connect Instagram" to reconnect.`;
+        if (igErr?.code === 190 || msg?.toLowerCase().includes('access token')) {
+          msg = `Token issue for "${post.acct_name}": ${msg}. Reconnect the account.`;
         }
-        logger.error(`Background publish failed for post ${post.id}: ${msg}`, {
-          accountId: accountKey,
-          igUserId: post.ig_user_id,
-          tokenFingerprint: tokenPrint,
-          graphError: err.response?.data || null,
-        });
+        logger.error(`Background publish failed for post ${post.id}: ${msg}`);
         db.run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [msg, post.id]).catch(() => {});
       })
-      .finally(() => {
-        activePostPublishes.delete(post.id);
-      });
+      .finally(() => activePostPublishes.delete(post.id));
   } catch (err) {
-    const igMsg = err.response?.data?.error?.message || err.response?.data?.error_message;
-    const msg = igMsg || err.message;
+    const msg = err.response?.data?.error?.message || err.message;
     await getDB().run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [msg, req.params.id]).catch(() => {});
     res.status(500).json({ error: msg });
   }
@@ -211,35 +166,24 @@ router.post('/:id/schedule', async (req, res, next) => {
   try {
     const { scheduled_at, account_id, caption } = req.body;
     if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at is required' });
-
     const db = getDB();
     const postId = req.params.id;
-
     if (account_id) await db.run('UPDATE posts SET account_id=$1 WHERE id=$2', [account_id, postId]);
     if (caption !== undefined) await db.run('UPDATE posts SET final_caption=$1 WHERE id=$2', [caption, postId]);
-
     const post = await db.get(
       `SELECT p.*, a.id as account_ref, a.username, a.ig_user_id, a.access_token, a.name as acct_name,
               a.fallback_username, a.fallback_session_path
-       FROM posts p JOIN accounts a ON p.account_id = a.id
-       WHERE p.id=$1`,
+       FROM posts p JOIN accounts a ON p.account_id = a.id WHERE p.id=$1`,
       [postId]
     );
-    if (!post) return res.status(400).json({ error: 'Post not found, or no account selected for this post' });
-    if (post.status === 'publishing') return res.status(409).json({ error: 'This post is currently publishing and cannot be rescheduled.' });
+    if (!post) return res.status(400).json({ error: 'Post not found, or no account selected' });
+    if (post.status === 'publishing') return res.status(409).json({ error: 'This post is currently publishing.' });
     if (!post.ig_user_id) return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Instagram User ID.` });
     if (!post.access_token && !post.fallback_session_path) {
-      return res.status(400).json({ error: `Account "${post.acct_name}" is missing both a Meta access token and a fallback Instagram session.` });
+      return res.status(400).json({ error: `Account "${post.acct_name}" is missing a token and fallback session.` });
     }
-
     await db.run(`UPDATE posts SET status='scheduled', scheduled_at=$1, error_message=NULL WHERE id=$2`, [scheduled_at, postId]);
-    logger.info(`Post scheduled: ${postId}`, {
-      accountId: post.account_id || post.account_ref || 'no-account',
-      accountName: post.acct_name,
-      username: post.username || null,
-      scheduledAt: scheduled_at,
-    });
-
+    logger.info(`Post scheduled: ${postId}`, { scheduledAt: scheduled_at });
     res.json({ message: 'Post scheduled', scheduled_at });
   } catch (err) { next(err); }
 });
