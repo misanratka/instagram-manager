@@ -4,7 +4,6 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../services/logger');
 
-// Use PostgreSQL when DATABASE_URL is set (production), SQLite otherwise (local dev)
 let adapter;
 
 function getDB() {
@@ -21,7 +20,6 @@ async function initDB() {
   logger.info('Database initialized');
 }
 
-// ── PostgreSQL (Neon / production) ────────────────────────────
 async function initPostgres() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -31,6 +29,7 @@ async function initPostgres() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS accounts (
       id            TEXT PRIMARY KEY,
+      user_id       TEXT,
       name          TEXT NOT NULL,
       username      TEXT NOT NULL,
       ig_user_id    TEXT NOT NULL,
@@ -45,7 +44,7 @@ async function initPostgres() {
       token_connected_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-  // Safe migration: add column if it doesn't exist yet
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS user_id TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS token_connected_at TIMESTAMPTZ DEFAULT NOW()`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS token_scopes TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_username TEXT`).catch(() => {});
@@ -88,7 +87,6 @@ async function initPostgres() {
   };
 }
 
-// ── SQLite (local dev) ────────────────────────────────────────
 function initSQLite() {
   const dbPath = process.env.DB_PATH || './data/instagram_manager.db';
   const dbDir = path.dirname(path.resolve(dbPath));
@@ -100,6 +98,7 @@ function initSQLite() {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
       id            TEXT PRIMARY KEY,
+      user_id       TEXT,
       name          TEXT NOT NULL,
       username      TEXT NOT NULL,
       ig_user_id    TEXT NOT NULL,
@@ -134,7 +133,6 @@ function initSQLite() {
     );
   `);
 
-  // Wrap sync SQLite in async adapter so routes work with both backends
   adapter = {
     async get(sql, params = []) {
       return sqlite.prepare(sql).get(...params) || null;
