@@ -224,33 +224,46 @@ function buildSingleLine(overlay, yOffsetExpr) {
 }
 
 function buildDrawtext(overlay) {
-  // No text (or space-only) + background = solid cover rectangle
   if (overlay.bg !== 'none' && (!overlay.text || overlay.text.trim() === '')) {
     return buildCoverBox(overlay);
   }
-  // Never burn empty or placeholder text
   if (!overlay.text || !overlay.text.trim()) return null;
   if (overlay.text.trim() === 'Tap to type') return null;
 
+  const filters = [];
+
+  // If user set bgW/bgH (sized cover box from editor), draw the cover rectangle
+  // separately FIRST. Then draw text on top with no inline box so the rectangle
+  // matches the editor preview exactly.
+  const hasUserSizedCover = overlay.bg !== 'none' &&
+    ((overlay.bgW !== undefined && overlay.bgW !== null) ||
+     (overlay.bgH !== undefined && overlay.bgH !== null) ||
+     overlay.coverWidthPct !== undefined);
+
+  if (hasUserSizedCover) {
+    filters.push(buildCoverBox(overlay));
+  }
+
   const lines = overlay.text.split('\n');
   const fontSizePct = overlay.fontSizePct || 0.074;
-  // lineH expressed as fraction of video width (same unit as fontsize=w*fontSizePct)
-  // lineH = fontsize * 1.3 = w*fontSizePct*1.3
   const lineHFrac = fontSizePct * 1.3;
 
-  const filters = lines.map((lineText, i) => {
+  lines.forEach((lineText, i) => {
     const text = lineText || (overlay.bg !== 'none' ? ' ' : null);
-    if (!text) return null;
-    // yOffset as FFmpeg expression in output pixels: (i - center) * w*lineHFrac
-    // This matches canvas: startY + i*lineH where lineH=fontSize*1.3
+    if (!text) return;
     const offset = i - (lines.length - 1) / 2;
     const yOffsetExpr = offset === 0 ? 0 : `${offset.toFixed(4)}*w*${lineHFrac.toFixed(6)}`;
-    return buildSingleLine({ ...overlay, text }, yOffsetExpr);
-  }).filter(Boolean);
+    // When user set a sized cover box, force text color white-on-black/black-on-white
+    // and strip inline box so it doesn't double-render.
+    const textOverlay = hasUserSizedCover
+      ? { ...overlay, text, bg: 'none',
+          textColor: (overlay.bg === 'white' || overlay.bg === 'yellow') ? '#111111' : '#FFFFFF' }
+      : { ...overlay, text };
+    filters.push(buildSingleLine(textOverlay, yOffsetExpr));
+  });
 
-  return filters.join(',') || null;
+  return filters.filter(Boolean).join(',') || null;
 }
-
 // Convert SRT segments to word-by-word ASS subtitle string for motion styles
 function segmentsToWordASS(segments, style) {
   if (!segments || segments.length === 0) return null;
