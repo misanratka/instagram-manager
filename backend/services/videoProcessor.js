@@ -325,7 +325,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   // Upscale with Lanczos
   if (upscale && upscale !== 'none') {
     vFilters.push(`scale=${upscale}:flags=lanczos+accurate_rnd`);
-  } else if (preset) {
+  } else if (preset && textOverlays.length === 0) {
     vFilters.push("scale='if(gt(iw,1920),iw,1920)':'if(gt(ih,1080),ih,1080)':force_original_aspect_ratio=decrease:flags=lanczos");
   }
 
