@@ -4,8 +4,45 @@ const { getDB } = require('../models/db');
 const { verifyToken } = require('../services/instagramPoster');
 const { createFallbackSession, getSessionPath, getLegacySessionPath, removeSessionPath } = require('../services/instagramWebPoster');
 const logger = require('../services/logger');
+const { google } = require('googleapis');
 
 const router = express.Router();
+
+// ── Google Sheets: update account column for a user ───────────────────────────
+async function updateSheetAccount(userId, username) {
+  try {
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: 'Sheet1!A:H',
+    });
+
+    const rows = response.data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][7] === userId) {
+        // Column D (index 3) = Instagram accounts
+        const existing = rows[i][3] || '';
+        const accounts = existing ? existing.split(', ') : [];
+        if (!accounts.includes(username)) accounts.push(username);
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEET_ID,
+          range: `Sheet1!D${i + 1}`,
+          valueInputOption: 'RAW',
+          requestBody: { values: [[accounts.join(', ')]] },
+        });
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('Sheet update error:', err.message);
+  }
+}
 
 // GET all accounts — filtered by user
 router.get('/', async (req, res, next) => {
@@ -25,7 +62,7 @@ router.post('/:id/fallback-session', async (req, res, next) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: 'username and password are required to create an Instagram fallback session' });
+      return res.status(400).json({ error: 'username and password are required' });
     }
     const db = getDB();
     const account = await db.get('SELECT id, name, username, ig_user_id FROM accounts WHERE id=$1', [req.params.id]);
@@ -54,7 +91,7 @@ router.delete('/:id/fallback-session', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// POST new account — save with user_id
+// POST new account — save with user_id and update sheet
 router.post('/', async (req, res, next) => {
   try {
     const { name, ig_user_id, access_token, token_scopes, caption_style, caption_prompt } = req.body;
@@ -78,6 +115,9 @@ router.post('/', async (req, res, next) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)`,
       [id, userId, name, username, ig_user_id || null, access_token || null, token_scopes || null, caption_style || 'casual', caption_prompt || null]
     );
+
+    // Update Google Sheet with the new IG account
+    if (userId) await updateSheetAccount(userId, username);
 
     res.json({ id, username, message: 'Account added successfully' });
   } catch (err) { next(err); }
@@ -106,7 +146,7 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     await getDB().run('DELETE FROM accounts WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Account deleted' });
+    res.json({ message: 'Deleted' });
   } catch (err) { next(err); }
 });
 
