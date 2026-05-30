@@ -456,6 +456,12 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
+  // DEBUG LOGGING — remove after diagnosis
+  logger.info(`[DEBUG] textOverlays received: ${JSON.stringify(textOverlays)}`);
+  logger.info(`[DEBUG] vFilters chain: ${vFilters.join(',')}`);
+  const probedDims = await getVideoDimensions(inputPath);
+  logger.info(`[DEBUG] ffprobe dims: ${probedDims.width}x${probedDims.height}`);
+
   // Memory-safe encoding for Render free tier (512MB RAM)
   args.push('-c:v', 'libx264');
   args.push('-preset', 'ultrafast');   // Fastest, lowest memory
