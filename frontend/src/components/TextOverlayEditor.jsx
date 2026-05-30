@@ -50,7 +50,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     fontIdx:     raw?.fontIdx ?? 0,
     textColor:   raw?.textColor ?? '#FFFFFF',
     bg:          raw?.bg ?? 'none',
-    // BG cover-box size: as % of video. Defaults sized to cover full-width caption strip.
     bgW:         raw?.bgW ?? null,
     bgH:         raw?.bgH ?? null,
     align:       raw?.align ?? 'center',
@@ -59,8 +58,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const [boxes, setBoxes]   = useState(() => textBoxes?.length ? textBoxes.map(makeBox) : [makeBox(null)]);
   const [activeId, setActiveId] = useState(() => textBoxes?.[0]?.id ?? boxes[0]?.id);
 
-  // True video pixel dimensions — canvas matches these EXACTLY
-  // We do NOT add extra black bars; the source video has its own bars baked in.
   const [vidW, setVidW] = useState(720);
   const [vidH, setVidH] = useState(1280);
 
@@ -99,7 +96,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
     };
   },[videoSrc]);
 
-  // Emit to parent — xPct/yPct = % of true video dimensions (matches FFmpeg drawtext)
+  // Emit to parent — NOW includes vidW/vidH so backend uses exact pixel coords
   useEffect(()=>{
     const out = boxes.map(b => {
       const font = FONTS[b.fontIdx??0];
@@ -112,6 +109,7 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         posX: Math.round((b.xPct/100)*vidW),
         posY: Math.round((b.yPct/100)*vidH),
         xPct: b.xPct, yPct: b.yPct,
+        vidW, vidH,   // ← ADDED: exact dimensions the canvas used
         font: font.value.replace(/'/g,'').split(',')[0].trim(),
         fontFamily: font.value, fontWeight: font.weight,
         textColor: b.textColor, colorHex: b.textColor,
@@ -142,15 +140,13 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   const bgObj = BGS.find(b=>b.v===(ab?.bg??'none'))??BGS[0];
   const hasBg = ab?.bg !== 'none';
 
-  // When user turns BG ON for the first time, auto-set bgW=100 (full width)
-  // so the existing caption strip gets fully covered. They can shrink it after.
   function bgCycle(){
     if(!ab) return;
     const next = BGS[(BGS.findIndex(b=>b.v===(ab.bg??'none'))+1) % BGS.length].v;
     const patch = { bg: next };
     if(next !== 'none' && (ab.bgW == null || ab.bg === 'none')){
-      patch.bgW = 100; // full-width cover by default
-      patch.bgH = 14;  // tall enough for a 2-line caption strip
+      patch.bgW = 100;
+      patch.bgH = 14;
     }
     updateBox(ab.id, patch);
   }
@@ -162,8 +158,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
   if(dispH > maxVideoH){ dispH = maxVideoH; dispW = Math.round(dispH * vidW / vidH); }
 
   // ── CANVAS DRAW ──────────────────────────────────────────────
-  // Canvas size = real video size. Video fills canvas 1:1, no extra padding.
-  // The source video's own black bars are part of the image and will be drawn naturally.
   const draw = useCallback(()=>{
     const canvas = canvasRef.current;
     if(!canvas) return;
@@ -194,7 +188,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       ctx.textBaseline = 'middle';
       ctx.textAlign = align;
 
-      // Wrap text
       const lines = [];
       (b.text || '').split('\n').forEach(para=>{
         if(!para){ lines.push(''); return; }
@@ -215,17 +208,14 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
       const bgColor = b.bg==='black'?'#000':b.bg==='white'?'#fff':b.bg==='yellow'?'#FFEE00':null;
       const fgColor = (b.bg==='white'||b.bg==='yellow')?'#000':b.textColor;
 
-      // BG cover box — uses bgW/bgH if set (matches buildCoverBox in backend exactly)
       if(bgColor){
         let bWidth, bHeight, bgX, bgY;
         if(b.bgW != null || b.bgH != null){
-          // Manual size — exactly matches FFmpeg drawbox using bgW/bgH percentages
           bWidth  = Math.round(((b.bgW ?? 40)/100) * CW);
           bHeight = Math.round(((b.bgH ?? 12)/100) * CH);
-          bgX = posX - bWidth/2;  // centered on xPct, matches FFmpeg: iw*xc-(w)/2
-          bgY = posY - bHeight/2; // centered on yPct, matches FFmpeg: ih*yc-(h)/2
+          bgX = posX - bWidth/2;
+          bgY = posY - bHeight/2;
         } else {
-          // Auto size — fits text
           const maxTw = lines.length ? Math.max(...lines.map(l=>ctx.measureText(l).width)) : fontSize*4;
           const pad   = Math.round(fontSize * 0.25);
           bWidth  = maxTw + pad*2;
@@ -239,7 +229,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         ctx.fillRect(bgX, bgY, bWidth, bHeight);
       }
 
-      // Draw text
       if(b.text.trim()){
         lines.forEach((line,i)=>{
           ctx.fillStyle = fgColor;
@@ -247,7 +236,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
         });
       }
 
-      // Active selection outline
       if(isActive){
         ctx.save();
         let bx, by, bw, bh;
@@ -453,7 +441,6 @@ export default function TextOverlayEditor({ videoSrc, textBoxes, onChange, onClo
           <button onClick={alignCycle} style={S.alignBtn}><AlignIcon align={ab?.align??'center'}/></button>
         </div>
 
-        {/* BG cover-box size sliders — for hiding original captions */}
         {hasBg && (
           <div style={S.bgSizeRow}>
             <span style={S.bgSizeLabel}>Cover W</span>
