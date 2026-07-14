@@ -35,7 +35,7 @@ function getLocalVideoPath(post) {
 function startScheduler() {
   const selfUrl = `${process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || ''}`.replace(/\/$/, '');
 
-  cron.schedule('* * * * *', async () => {
+ cron.schedule('*/5 * * * *', async () => {
     let db;
     try { db = getDB(); } catch { return; }
 
@@ -159,7 +159,7 @@ function startScheduler() {
     }
   });
 
-  logger.info('Post scheduler started (checking every minute)');
+  logger.info('Post scheduler started (checking every 5 minutes)');
 }
 
 module.exports = { startScheduler };
