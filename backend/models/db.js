@@ -23,7 +23,10 @@ async function initDB() {
 async function initPostgres() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 10000
   });
 
   await pool.query(`
