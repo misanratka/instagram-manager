@@ -35,7 +35,7 @@ function getLocalVideoPath(post) {
 function startScheduler() {
   const selfUrl = `${process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || ''}`.replace(/\/$/, '');
 
- cron.schedule('*/5 * * * *', async () => {
+cron.schedule('*/10 * * * *', async () => {
     let db;
     try { db = getDB(); } catch { return; }
 
