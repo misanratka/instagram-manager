@@ -167,8 +167,8 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
     transcript      && `Audio transcript (use this to identify who is speaking and what is happening): ${transcript.substring(0, 1200)}`
   ].filter(Boolean).join('\n');
 
-  const completion = await getGroq().chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+ const completion = await getGroq().chat.completions.create({
+    model: 'openai/gpt-oss-120b',
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
