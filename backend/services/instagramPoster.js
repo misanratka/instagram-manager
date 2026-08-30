@@ -318,7 +318,7 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
   try {
     containerId = await createReelContainer(igUserId, accessToken, videoUrl, caption, context);
   } catch (err) {
-    logGraphError('Instagram Reel container creation', err, {
+    const details = logGraphError('Instagram Reel container creation', err, {
       ...context,
       igUserId,
       videoUrl,
@@ -332,14 +332,13 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
       }),
       tokenFingerprint: tokenFingerprint(accessToken),
     });
-    throw err;
-  }
+    throw new Error(`Container creation failed: ${details.message}${details.status ? ` (HTTP ${details.status})` : ''}`);  }
   await waitForContainer(containerId, accessToken, 180000, context);
   let mediaId;
   try {
     mediaId = await publishContainer(igUserId, accessToken, containerId, context);
   } catch (err) {
-    logGraphError('Instagram Reel publish', err, {
+        const details = logGraphError('Instagram Reel publish', err, {
       ...context,
       igUserId,
       containerId,
@@ -350,8 +349,7 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
       }),
       tokenFingerprint: tokenFingerprint(accessToken),
     });
-    throw err;
-  }
+        throw new Error(`Publish failed: ${details.message}${details.status ? ` (HTTP ${details.status})` : ''}`);
   logger.info(`Reel published successfully. Media ID: ${mediaId}`, {
     postId: context.postId || null,
     accountId: context.accountId || null,
