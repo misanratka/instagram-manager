@@ -64,17 +64,17 @@ You MUST follow this EXACT structure for every video, no exceptions:
 • Must create curiosity or trigger an emotional reaction (humor, nostalgia, awe, relatable truth) and stop the scroll
 
 2. CAPTION PARAGRAPH 1 — THE HOOK & CONTEXT
-• 1–2 sentences
+• 2–3 sentences
 • Instantly summarize the event/clip/song/news/idea with maximum energy
 • Subject + core action + setting or timeframe, with 2–3 emojis
 
 3. CAPTION PARAGRAPH 2 — THE DEEP DIVE & VALUE
-• 2–3 sentences
-• Give the key details, cultural significance, background, or why it matters (only facts you can support)
+• 4–6 sentences — this is the detailed part: who/what is involved, what exactly happens, the background or backstory, the cultural significance, and why it matters right now
+• Only facts you can support from the video, transcript, original caption, or verified context. Depth must come from insight, context, and significance — never from invented stats, dates, quotes, or records
 • 2–3 emojis
 
 4. CAPTION PARAGRAPH 3 — CALL TO ACTION
-• 1–2 sentences
+• 2 sentences
 • A low-friction, open-ended question related to the topic that drives comments, plus a short action line (e.g. "Let us know below! 👇")
 
 5. CREDIT LINE
@@ -83,6 +83,12 @@ You MUST follow this EXACT structure for every video, no exceptions:
 6. HASHTAGS
 • Exactly 5 to 7 hashtags on ONE line
 • 2 broad category tags + 2 specific topic tags + 2 entity/name tags (add one extra only if clearly relevant)
+
+MENTIONS / TAGGING RULES:
+• You may @tag a person or account ONLY if its handle appears in the VERIFIED HANDLES list provided in the user message, and only when that person is clearly featured in the content or is the clip's credited source
+• Copy the handle exactly as listed. NEVER guess, recall from memory, or invent an Instagram handle — a wrong tag is worse than no tag
+• NEVER identify a person from their face or appearance. Use names only when they appear in the title, original caption, or transcript
+• If no verified handle applies, include NO @ tags at all. Maximum 3 tags, placed naturally inside paragraph 1 or 2
 
 OUTPUT FORMAT — return exactly this, with one blank line between each block, no labels, no headings, no bullet points, no explanations, no multiple options:
 
@@ -98,9 +104,46 @@ ${CREDIT_LINE}
 
 [#hashtags on one line]`;
 
+let CURATED_HANDLES = {};
+try { CURATED_HANDLES = require('./celebrityHandles'); } catch { /* optional file */ }
+
+// Build the only set of handles the model is allowed to tag.
+// Sources: (1) @mentions already in the source post/title (real handles),
+//          (2) your own verified list in services/celebrityHandles.js, matched by name in the text.
+function buildHandleContext({ videoTitle, originalCaption, transcript }) {
+  const text = [videoTitle, originalCaption, transcript].filter(Boolean).join('\n');
+  const found = new Map(); // lowercase handle -> { handle, note }
+
+  for (const m of text.matchAll(/(?<![\w.])@([A-Za-z0-9._]{2,30})/g)) {
+    const h = m[1].replace(/\.+$/, '');
+    if (h && !found.has(h.toLowerCase())) found.set(h.toLowerCase(), { handle: h, note: 'mentioned in the source post' });
+  }
+  const lower = text.toLowerCase();
+  for (const [name, handle] of Object.entries(CURATED_HANDLES || {})) {
+    const h = String(handle || '').replace(/^@/, '');
+    if (h && lower.includes(name.toLowerCase())) found.set(h.toLowerCase(), { handle: h, note: `verified handle for ${name}` });
+  }
+
+  const allowed = new Set([...found.keys()]);
+  const list = [...found.values()].map(v => `@${v.handle} (${v.note})`).join('\n');
+  const textBlock = list
+    ? `VERIFIED HANDLES (the ONLY handles you may tag):\n${list}`
+    : 'VERIFIED HANDLES: none — do not include any @ tags.';
+  return { allowed, textBlock };
+}
+
+function stripUnverifiedMentions(text, allowed) {
+  let kept = 0;
+  return text.replace(/(?<![\w.])@([A-Za-z0-9._]{2,30})/g, (full, h) => {
+    const clean = h.replace(/\.+$/, '');
+    if (allowed && allowed.has(clean.toLowerCase()) && kept < 3) { kept++; return full; }
+    return ''; // drop unverified tag entirely
+  }).replace(/[ \t]{2,}/g, ' ').replace(/ +([,.!?])/g, '$1');
+}
+
 // Enforce the fixed format no matter what the model returns
-function normalizeCaption(caption) {
-  let text = (caption || '').replace(/\r/g, '').trim();
+function normalizeCaption(caption, allowed) {
+  let text = stripUnverifiedMentions((caption || '').replace(/\r/g, '').trim(), allowed);
 
   // Pull hashtags out of the body
   const tags = [];
@@ -120,12 +163,12 @@ function normalizeCaption(caption) {
   return parts.filter(Boolean).join('\n\n');
 }
 
-function parseResponse(raw) {
+function parseResponse(raw, allowed) {
   try {
     const blocks = raw.trim().split(/\n\s*\n/);
-    const onScreenText = (blocks[0] || '').replace(/^\s*(TOS|TEXT[- ]ON[- ]SCREEN)\s*[:\-]\s*/i, '').trim();
+    const onScreenText = stripUnverifiedMentions((blocks[0] || '').replace(/^\s*(TOS|TEXT[- ]ON[- ]SCREEN)\s*[:\-]\s*/i, '').trim(), allowed);
     const body = blocks.slice(1).join('\n\n').trim();
-    return { onScreenText, caption: normalizeCaption(body || raw.trim()) };
+    return { onScreenText, caption: normalizeCaption(body || raw.trim(), allowed) };
   } catch {
     return { onScreenText: '', caption: raw.trim() };
   }
@@ -154,19 +197,21 @@ async function generateWithGeminiVision({ videoPath, transcript, originalCaption
     if (file.state !== 'ACTIVE') throw new Error(`Gemini file not ready: ${file.state}`);
     logger.info('Gemini file ready, generating content...');
 
+    const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript });
     const extraContext = [
       videoTitle      && `Video title: ${videoTitle}`,
-      originalCaption && `Original post caption: ${originalCaption.substring(0, 600)}`,
-      transcript      && `Audio transcript: ${transcript.substring(0, 800)}`
+      originalCaption && `Original post caption: ${originalCaption.substring(0, 1200)}`,
+      transcript      && `Audio transcript: ${transcript.substring(0, 1500)}`,
+      textBlock
     ].filter(Boolean).join('\n');
 
-    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
     const result = await model.generateContent([
       { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
       { text: `${SYSTEM_PROMPT}\n\nCaption style: ${style}\n\n${extraContext}\n\nGenerate the on-screen text and caption now:` }
     ]);
 
-    return parseResponse(result.response.text());
+    return parseResponse(result.response.text(), allowed);
   } finally {
     // Clean up uploaded file
     if (uploadedFile?.file?.name) {
@@ -178,10 +223,12 @@ async function generateWithGeminiVision({ videoPath, transcript, originalCaption
 // Fallback: text-only generation via Groq
 async function generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
   const style = customPrompt || STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
+  const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript });
   const context = [
     videoTitle      && `Video title: ${videoTitle}`,
-    originalCaption && `Original post caption (use this to understand the specific moment): ${originalCaption.substring(0, 800)}`,
-    transcript      && `Audio transcript (use this to identify who is speaking and what is happening): ${transcript.substring(0, 1200)}`
+    originalCaption && `Original post caption (use this to understand the specific moment): ${originalCaption.substring(0, 1200)}`,
+    transcript      && `Audio transcript (use this to identify who is speaking and what is happening): ${transcript.substring(0, 1800)}`,
+    textBlock
   ].filter(Boolean).join('\n');
 
  const completion = await getGroq().chat.completions.create({
@@ -190,10 +237,10 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
     ],
-    max_tokens: 1200,
+    max_tokens: 1800,
     temperature: 0.95
   });
-  return parseResponse(completion.choices[0].message.content);
+  return parseResponse(completion.choices[0].message.content, allowed);
 }
 
 async function generateContent({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
