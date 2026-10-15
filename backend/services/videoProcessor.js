@@ -351,7 +351,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // 3. Quality preset pipeline
   const PRESETS = {
-    instagram: { dL:2,  dC:1,  dT:3,  sL:1.4, sC:0.4,  br:0.06, ct:1.15, sat:1.35, gm:1.04, cas:0.6,  crf:'18', curves:true,  deband:false, nlmeans:false },
+    instagram: { dL:1,  dC:1,  dT:2,  sL:0.8, sC:0.3,  br:0.02, ct:1.06, sat:1.12, gm:1.0,  cas:0,    crf:'18', curves:false, deband:false, nlmeans:false },
     cinematic: { dL:3,  dC:2,  dT:4,  sL:0.8, sC:0.2,  br:0.00, ct:1.25, sat:0.85, gm:1.10, cas:0.4,  crf:'18', curves:true,  deband:false, nlmeans:false },
     crisp:     { dL:1,  dC:1,  dT:2,  sL:2.0, sC:0.6,  br:0.03, ct:1.18, sat:1.10, gm:0.95, cas:0.9,  crf:'17', curves:false, deband:false, nlmeans:false },
     lowlight:  { dL:4,  dC:3,  dT:5,  sL:0.8, sC:0.2,  br:0.15, ct:1.30, sat:1.05, gm:1.40, cas:0.5,  crf:'18', curves:true,  deband:false, nlmeans:false },
@@ -379,7 +379,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   if (upscale && upscale !== 'none') {
     vFilters.push(`scale=${upscale}:flags=lanczos+accurate_rnd`);
   } else if (preset && textOverlays.length === 0) {
-    vFilters.push("scale='if(gt(iw,1920),iw,1920)':'if(gt(ih,1080),ih,1080)':force_original_aspect_ratio=decrease:flags=lanczos");
+    vFilters.push("scale=w='min(1080,iw)':h=-2:flags=lanczos");
   }
 
   // Colour grading
@@ -462,16 +462,16 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   const probedDims = await getVideoDimensions(inputPath);
   logger.info(`[DEBUG] ffprobe dims: ${probedDims.width}x${probedDims.height}`);
 
-  // Memory-safe encoding for Render free tier (512MB RAM)
+  // Quality encode (High profile, 48kHz audio) - still single-thread for Render free tier
   args.push('-c:v', 'libx264');
-  args.push('-preset', 'ultrafast');   // Fastest, lowest memory
+  args.push('-preset', 'veryfast');
   args.push('-crf', crf);
-  args.push('-threads', '1');          // Single thread = low memory
-  args.push('-profile:v', 'baseline'); // Baseline = simplest, least memory
-  args.push('-level:v', '3.1');
+  args.push('-threads', '1');
+  args.push('-profile:v', 'high', '-level:v', '4.1');
   args.push('-pix_fmt', 'yuv420p');
-  args.push('-maxrate', '4M', '-bufsize', '4M'); // Cap memory buffer
-  args.push('-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-movflags', '+faststart', outputPath);
+  args.push('-maxrate', '8M', '-bufsize', '16M');
+  args.push('-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709');
+  args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', outputPath);
 
   await runFFmpeg(args, 'enhance');
   if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
