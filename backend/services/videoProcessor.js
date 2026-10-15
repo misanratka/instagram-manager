@@ -351,7 +351,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // 3. Quality preset pipeline
   const PRESETS = {
-    instagram: { dL:1,  dC:1,  dT:2,  sL:0.8, sC:0.3,  br:0.02, ct:1.06, sat:1.12, gm:1.0,  cas:0,    crf:'18', curves:false, deband:false, nlmeans:false },
+    instagram: { dL:0,  dC:0,  dT:0,  sL:0.6, sC:0.2,  br:0.00, ct:1.00, sat:1.05, gm:1.0,  cas:0,    crf:'15', curves:false, deband:false, nlmeans:false },
     cinematic: { dL:3,  dC:2,  dT:4,  sL:0.8, sC:0.2,  br:0.00, ct:1.25, sat:0.85, gm:1.10, cas:0.4,  crf:'18', curves:true,  deband:false, nlmeans:false },
     crisp:     { dL:1,  dC:1,  dT:2,  sL:2.0, sC:0.6,  br:0.03, ct:1.18, sat:1.10, gm:0.95, cas:0.9,  crf:'17', curves:false, deband:false, nlmeans:false },
     lowlight:  { dL:4,  dC:3,  dT:5,  sL:0.8, sC:0.2,  br:0.15, ct:1.30, sat:1.05, gm:1.40, cas:0.5,  crf:'18', curves:true,  deband:false, nlmeans:false },
@@ -367,7 +367,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // hqdn3d temporal pass
   const denoiseStrength = Number(denoise) || 0;
-  if (preset) {
+  if (preset && (preset.dL > 0 || preset.dT > 0)) {
     // Reduced hqdn3d strength for lower memory usage
     vFilters.push(`hqdn3d=luma_spatial=${Math.min(preset.dL,2)}:chroma_spatial=${Math.min(preset.dC,1)}:luma_tmp=${Math.min(preset.dT,3)}:chroma_tmp=${(Math.min(preset.dT,3) * 0.85).toFixed(1)}`);
   } else if (denoiseStrength > 0) {
@@ -379,7 +379,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   if (upscale && upscale !== 'none') {
     vFilters.push(`scale=${upscale}:flags=lanczos+accurate_rnd`);
   } else if (preset && textOverlays.length === 0) {
-    vFilters.push("scale=w='min(1080,iw)':h=-2:flags=lanczos");
+    vFilters.push("scale=w='if(gt(ih,iw),1080,min(1920,iw))':h=-2:flags=lanczos+accurate_rnd");
   }
 
   // Colour grading
@@ -469,7 +469,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   args.push('-threads', '1');
   args.push('-profile:v', 'high', '-level:v', '4.1');
   args.push('-pix_fmt', 'yuv420p');
-  args.push('-maxrate', '8M', '-bufsize', '16M');
+  args.push('-maxrate', '12M', '-bufsize', '24M');
   args.push('-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709');
   args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', outputPath);
 
