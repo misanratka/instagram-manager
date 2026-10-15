@@ -207,7 +207,7 @@ async function downloadViaRapidAPI(url) {
       host: 'social-media-video-downloader.p.rapidapi.com',
       endpoint: 'https://social-media-video-downloader.p.rapidapi.com/smvd/get/instagram',
       paramKey: 'url',
-      pick: d => d?.links?.find?.(l => l.quality === 'sd' || l.type === 'mp4')?.link || d?.link,
+      pick: d => (d?.links?.find?.(l => l.quality === 'hd') || d?.links?.find?.(l => l.quality === 'sd' || l.type === 'mp4'))?.link || d?.link,
     },
   ];
 
@@ -256,7 +256,8 @@ function ytDlpDownload(url, outputPath, extraArgs = []) {
     const args = [
       url,
       '--output', outputPath,
-      '--format', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best',
+      '--format', 'bv*[height<=1920][width<=1920]+ba/b[height<=1920][width<=1920]/bv*+ba/b',
+      '--format-sort', 'res,fps,vcodec:h264,acodec:aac',
       '--merge-output-format', 'mp4',
       '--no-playlist',
       '--max-filesize', '200m',
@@ -268,6 +269,17 @@ function ytDlpDownload(url, outputPath, extraArgs = []) {
       if (err) return reject(new Error(err.message));
       if (!fs.existsSync(outputPath)) return reject(new Error('yt-dlp finished but file not found.'));
       resolve();
+    });
+  });
+}
+
+function probeSize(file) {
+  return new Promise((resolve) => {
+    execFile('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0:s=x', file], { timeout: 20000 }, (err, stdout) => {
+      if (err) return resolve({ w: 0, h: 0 });
+      const [w, h] = String(stdout).trim().split('x').map(Number);
+      resolve({ w: w || 0, h: h || 0 });
     });
   });
 }
@@ -289,46 +301,74 @@ async function downloadVideo(url) {
   }
 
   if (isInstagramUrl(url)) {
-    // 1. HTML scrape (no auth, no API key needed)
-    try {
-      const cdnUrl = await scrapeInstagramVideoUrl(url);
-      if (cdnUrl) {
-        await downloadFromUrl(cdnUrl, outputPath);
-        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 50000) return buildResult();
-        logger.warn('Scrape CDN file too small, discarding'); cleanup();
-      }
-    } catch (e) { logger.warn('Scrape/download failed:', e.message); cleanup(); }
+    // Try every method and KEEP THE HIGHEST RESOLUTION (the old flow returned the
+    // first success, which was usually the low-res page-scrape file).
+    const candidates = []; // { name, file, w, h, px }
+    let cookieFailed = false;
 
-    // 2. RapidAPI (if RAPIDAPI_KEY env var set)
-    try {
-      const mediaUrl = await downloadViaRapidAPI(url);
-      if (mediaUrl) {
-        await downloadFromUrl(mediaUrl, outputPath);
-        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 50000) return buildResult();
-        cleanup();
-      }
-    } catch (e) { logger.warn('RapidAPI download failed:', e.message); cleanup(); }
-
-    // 3. yt-dlp + cookies
-    if (hasCookiesConfigured()) {
+    async function tryCandidate(name, fn) {
+      const file = path.join(uploadDir, `cand_${name}_${uuidv4()}.mp4`);
       try {
-        await ytDlpDownload(url, outputPath, cookieArgs());
-        return buildResult();
+        await fn(file);
+        if (fs.existsSync(file) && fs.statSync(file).size > 50000) {
+          const { w, h } = await probeSize(file);
+          logger.info(`IG candidate [${name}]: ${w}x${h}, ${(fs.statSync(file).size / 1048576).toFixed(1)} MB`);
+          candidates.push({ name, file, w, h, px: w * h });
+          return w && h && Math.min(w, h) >= 1080; // true = already full HD, stop searching
+        }
+        try { fs.unlinkSync(file); } catch {}
       } catch (e) {
-        logger.error('yt-dlp + cookies failed:', e.message); cleanup();
-        throw new Error('Instagram download failed. Cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.');
+        logger.warn(`IG candidate [${name}] failed: ${e.message}`);
+        if (name === 'ytdlp-cookies') cookieFailed = true;
+        try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch {}
       }
+      return false;
     }
 
-    // 4. yt-dlp without auth (sometimes works for public posts)
-    try {
-      await ytDlpDownload(url, outputPath, [
-        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      ]);
-      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 50000) return buildResult();
-      cleanup();
-    } catch (e) { logger.warn('yt-dlp no-auth failed:', e.message); cleanup(); }
+    let done = false;
 
+    // 1. yt-dlp (+ cookies if configured) — only method that can reach the DASH 1080p streams
+    if (hasCookiesConfigured()) {
+      done = await tryCandidate('ytdlp-cookies', f => ytDlpDownload(url, f, cookieArgs()));
+    }
+    if (!done && !candidates.length) {
+      done = await tryCandidate('ytdlp', f => ytDlpDownload(url, f, [
+        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      ]));
+    }
+
+    // 2. HTML scrape
+    if (!done) {
+      done = await tryCandidate('scrape', async f => {
+        const cdnUrl = await scrapeInstagramVideoUrl(url);
+        if (!cdnUrl) throw new Error('no CDN url');
+        await downloadFromUrl(cdnUrl, f);
+      });
+    }
+
+    // 3. RapidAPI
+    if (!done) {
+      await tryCandidate('rapidapi', async f => {
+        const mediaUrl = await downloadViaRapidAPI(url);
+        if (!mediaUrl) throw new Error('no media url');
+        await downloadFromUrl(mediaUrl, f);
+      });
+    }
+
+    if (candidates.length) {
+      candidates.sort((x, y) => y.px - x.px);
+      const best = candidates[0];
+      logger.info(`IG download: using [${best.name}] ${best.w}x${best.h}`);
+      for (const c of candidates.slice(1)) { try { fs.unlinkSync(c.file); } catch {} }
+      fs.renameSync(best.file, outputPath);
+      const res = buildResult();
+      res.width = best.w; res.height = best.h;
+      return res;
+    }
+
+    if (cookieFailed) {
+      throw new Error('Instagram download failed. Cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.');
+    }
     throw new Error(
       'Instagram blocked this download from the server.\n\n' +
       'Quick options:\n' +
