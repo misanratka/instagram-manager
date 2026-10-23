@@ -26,6 +26,14 @@ function readCaptionOptions(body = {}, isRepost = false) {
   };
 }
 
+// Instagram sometimes returns its login/generic page text instead of the real post caption.
+function cleanMetaText(t = '') {
+  const s = String(t || '').trim();
+  if (!s) return '';
+  if (/log in to instagram|create an account or log in|instagram photos and videos|^instagram$|^login/i.test(s) && s.length < 220) return '';
+  return s;
+}
+
 function srtToText(srt = '') {
   return String(srt || '').split(/\r?\n/)
     .filter(l => l.trim() && !/^\d+$/.test(l.trim()) && !/-->/.test(l)).join(' ');
@@ -55,6 +63,12 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}, options =
     : { text: '', segments: [] };
   const srtContent = segmentsToSRT(segments);
 
+  // Nothing to write from (no video, no transcript, no real post text): don't let the AI make something up.
+  const hasSource = !!videoPath || !!(meta.description || '').trim() || !!(meta.title || '').trim() || !!(transcript || '').trim();
+  if (!hasSource) {
+    return { transcript, segments, srtContent, caption: '', hookText: '', onScreenSuggestions: [], captionSkipped: true };
+  }
+
   const { caption, onScreenText } = await generateContent({
     videoPath,
     transcript,
@@ -75,6 +89,8 @@ router.post('/process-url', async (req, res, next) => {
 
     const isInstagram = /instagram\.com/.test(url);
     const meta = await getVideoMetadata(url).catch(() => ({ title: '', description: '' }));
+    meta.title = cleanMetaText(meta.title);
+    meta.description = cleanMetaText(meta.description);
 
     // Always try to download the video; for Instagram, a failed download is non-fatal
     let videoFile = null;
@@ -89,7 +105,7 @@ router.post('/process-url', async (req, res, next) => {
 
     const videoPath = videoFile ? videoFile.path : null;
 
-    const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions } =
+    const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions, captionSkipped } =
       await processVideo(videoPath, url, account_id, meta, readCaptionOptions(req.body, true));
 
     const postId = uuidv4();
@@ -111,6 +127,7 @@ router.post('/process-url', async (req, res, next) => {
       onScreenSuggestions,
       instagramUrl: isInstagram && !videoFile ? url : null,
       downloadError: isInstagram && !videoFile ? downloadError : null,
+      captionSkipped: !!captionSkipped,
     });
   } catch (err) { next(err); }
 });
@@ -193,6 +210,9 @@ router.post('/regenerate/:postId', async (req, res, next) => {
     const account = accountId ? await db.get('SELECT * FROM accounts WHERE id=$1', [accountId]) : null;
     const fs = require('fs');
     const videoPath = post.local_video_path && fs.existsSync(post.local_video_path) ? post.local_video_path : null;
+
+    if (!videoPath && !(post.original_caption || '').trim() && !(post.subtitles_srt || '').trim())
+      return res.status(400).json({ error: 'Nothing to write the caption from yet. Upload the video first.' });
 
     const options = { ...readCaptionOptions(req.body, !!post.video_url), tweak: req.body.tweak };
     const { caption, onScreenText } = await generateContent({
