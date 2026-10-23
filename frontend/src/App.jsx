@@ -107,7 +107,7 @@ export default function App() {
           </button>
 
           {showMenu && (
-            <div style={s.menu}>
+            <div style={s.menu} className="pop-in">
               <div style={s.menuUser}>
                 <div style={s.menuName}>{user?.name}</div>
                 <div style={s.menuEmail}>{user?.email}</div>
@@ -129,9 +129,10 @@ export default function App() {
 
       {/* Main content */}
       <main style={s.main}>
-        {tab === 'new'      && <NewPost />}
-        {tab === 'history'  && <PostHistory />}
-        {tab === 'accounts' && <AccountManager />}
+        {/* NewPost stays mounted so in-progress work isn't lost when switching tabs */}
+        <div className="tab-enter" style={{ display: tab === 'new' ? 'block' : 'none' }}><NewPost /></div>
+        {tab === 'history'  && <div key="history"  className="tab-enter"><PostHistory /></div>}
+        {tab === 'accounts' && <div key="accounts" className="tab-enter"><AccountManager /></div>}
       </main>
 
       {/* Bottom nav */}
@@ -139,11 +140,12 @@ export default function App() {
         {TABS.map(t => {
           const active = tab === t.id;
           return (
-            <button key={t.id} onClick={() => setTab(t.id)} style={s.navBtn}>
-              <div style={{ ...s.navIcon, background: active ? 'linear-gradient(135deg,#e6356a,#a855f7)' : 'transparent', borderRadius: 14 }}>
-                {t.icon(active)}
+            <button key={t.id} onClick={() => { setTab(t.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }} style={s.navBtn} aria-label={t.label}>
+              <div style={{ ...s.navIcon, position: 'relative', borderRadius: 14, transform: active ? 'translateY(-2px)' : 'none', transition: 'transform .3s cubic-bezier(.22,1,.36,1)' }}>
+                <span style={{ position: 'absolute', inset: 0, borderRadius: 14, background: 'linear-gradient(135deg,#e6356a,#a855f7)', boxShadow: '0 6px 18px rgba(230,53,106,.35)', opacity: active ? 1 : 0, transform: active ? 'scale(1)' : 'scale(.6)', transition: 'opacity .25s, transform .35s cubic-bezier(.34,1.56,.64,1)' }} />
+                <span style={{ position: 'relative', display: 'flex' }}>{t.icon(active)}</span>
               </div>
-              <span style={{ ...s.navLabel, color: active ? '#fff' : '#555' }}>{t.label}</span>
+              <span style={{ ...s.navLabel, color: active ? '#fff' : '#555', opacity: active ? 1 : .8 }}>{t.label}</span>
             </button>
           );
         })}
@@ -170,6 +172,6 @@ const s = {
   main:       { flex: 1, maxWidth: 600, margin: '0 auto', width: '100%', padding: '16px 16px 16px', overflowX: 'hidden' },
   nav:        { position: 'fixed', bottom: 0, left: 0, right: 0, height: 72, background: 'rgba(8,10,15,0.95)', backdropFilter: 'blur(30px)', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom,0px)' },
   navBtn:     { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 0' },
-  navIcon:    { width: 44, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' },
+  navIcon:    { width: 44, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   navLabel:   { fontSize: 10, fontWeight: 600, letterSpacing: '0.3px', transition: 'color 0.2s', textTransform: 'uppercase' },
 };
