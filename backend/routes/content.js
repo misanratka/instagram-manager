@@ -11,6 +11,26 @@ const logger = require('../services/logger');
 
 const router = express.Router();
 
+// Reads the optional caption fields from JSON bodies (bots/API) or multipart form fields (file upload).
+// Every field is optional. Accepts snake_case or camelCase.
+function readCaptionOptions(body = {}, isRepost = false) {
+  const credit = body.credit_line ?? body.creditLine;
+  return {
+    instructions: body.instructions,
+    mustInclude:  body.must_include ?? body.mustInclude,
+    mentions:     body.mentions,
+    hashtags:     body.hashtags,
+    aiHashtags:   body.ai_hashtags ?? body.aiHashtags,
+    // Credit line defaults ON for reposted links, OFF for your own uploaded clips
+    creditLine:   (credit === undefined || credit === '') ? isRepost : credit
+  };
+}
+
+function srtToText(srt = '') {
+  return String(srt || '').split(/\r?\n/)
+    .filter(l => l.trim() && !/^\d+$/.test(l.trim()) && !/-->/.test(l)).join(' ');
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.resolve(process.env.UPLOAD_DIR || './uploads')),
   filename:    (req, file, cb) => cb(null, `upload_${uuidv4()}${path.extname(file.originalname)}`)
@@ -24,7 +44,7 @@ const upload = multer({
   }
 });
 
-async function processVideo(videoPath, videoUrl, accountId, meta = {}) {
+async function processVideo(videoPath, videoUrl, accountId, meta = {}, options = {}) {
   const account = accountId
     ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId])
     : null;
@@ -41,7 +61,8 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}) {
     originalCaption: meta.description || '',
     videoTitle:      meta.title || '',
     captionStyle: account?.caption_style || 'casual',
-    customPrompt: account?.caption_prompt
+    customPrompt: account?.caption_prompt,
+    options
   });
 
   return { transcript, segments, srtContent, caption, hookText: onScreenText, onScreenSuggestions: [] };
@@ -67,7 +88,7 @@ router.post('/process-url', async (req, res, next) => {
     const videoPath = videoFile ? videoFile.path : null;
 
     const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions } =
-      await processVideo(videoPath, url, account_id, meta);
+      await processVideo(videoPath, url, account_id, meta, readCaptionOptions(req.body, true));
 
     const postId = uuidv4();
     await getDB().run(
@@ -99,7 +120,7 @@ router.post('/process-file', upload.single('video'), async (req, res, next) => {
     const videoUrl = `/uploads/${req.file.filename}`;
 
     const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions } =
-      await processVideo(videoPath, null, account_id, {});
+      await processVideo(videoPath, null, account_id, {}, readCaptionOptions(req.body, false));
 
     const postId = uuidv4();
     await getDB().run(
@@ -154,6 +175,35 @@ router.put('/caption/:postId', async (req, res, next) => {
     if (caption !== undefined)  await db.run('UPDATE posts SET final_caption=$1 WHERE id=$2', [caption, req.params.postId]);
     if (hookText !== undefined) await db.run('UPDATE posts SET hook_text=$1    WHERE id=$2', [hookText, req.params.postId]);
     res.json({ message: 'Updated' });
+  } catch (err) { next(err); }
+});
+
+// Re-write the caption for an existing post without re-downloading/re-uploading the video.
+// Body (all optional): account_id, instructions, must_include, mentions, hashtags, ai_hashtags, credit_line, tweak
+router.post('/regenerate/:postId', async (req, res, next) => {
+  try {
+    const db = getDB();
+    const post = await db.get('SELECT * FROM posts WHERE id=$1', [req.params.postId]);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+
+    const accountId = req.body.account_id || post.account_id;
+    const account = accountId ? await db.get('SELECT * FROM accounts WHERE id=$1', [accountId]) : null;
+    const fs = require('fs');
+    const videoPath = post.local_video_path && fs.existsSync(post.local_video_path) ? post.local_video_path : null;
+
+    const options = { ...readCaptionOptions(req.body, !!post.video_url), tweak: req.body.tweak };
+    const { caption, onScreenText } = await generateContent({
+      videoPath,
+      transcript: srtToText(post.subtitles_srt),
+      originalCaption: post.original_caption || '',
+      videoTitle: '',
+      captionStyle: account?.caption_style || 'casual',
+      customPrompt: account?.caption_prompt,
+      options
+    });
+
+    await db.run('UPDATE posts SET generated_caption=$1 WHERE id=$2', [caption, post.id]);
+    res.json({ postId: post.id, generatedCaption: caption, hookText: onScreenText });
   } catch (err) { next(err); }
 });
 
