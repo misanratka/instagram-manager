@@ -118,9 +118,11 @@ export default function AccountManager() {
                 ))}
               </div>
             </Field>
-            <Field label="Custom Caption Instructions (optional)">
-              <textarea style={{ ...s.input, minHeight: 70, resize: 'vertical' }} value={form.caption_prompt}
-                onChange={e => set('caption_prompt', e.target.value)} placeholder="Always start with a question..." />
+            <Field label="Writing style for this page (saved)">
+              <textarea style={{ ...s.input, minHeight: 90, resize: 'vertical' }} value={form.caption_prompt}
+                onChange={e => set('caption_prompt', e.target.value)}
+                placeholder="e.g. Movie fan page. Dramatic and cinematic. Short punchy sentences. Always end with a question." />
+              <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Used every time you pick this page on New Post. Leave empty to use the style above only.</div>
             </Field>
             <div style={s.formBtns}>
               <button type="button" onClick={cancel} style={s.cancelBtn}>Cancel</button>
@@ -150,6 +152,7 @@ export default function AccountManager() {
                 <div style={s.acctName}>{a.name}</div>
                 <div style={s.acctHandle}>@{a.username || a.ig_user_id}</div>
                 <div style={{ ...s.stylePillStatic }}>{a.caption_style}</div>
+                {a.caption_prompt && <div style={{ color: '#555', fontSize: 12, marginTop: 6, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.caption_prompt}</div>}
               </div>
             </div>
             <div style={s.cardActions}>
