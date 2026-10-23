@@ -136,9 +136,13 @@ router.put('/:id', async (req, res, next) => {
       );
     }
     await db.run(
-      `UPDATE accounts SET name=COALESCE($1,name), caption_style=COALESCE($2,caption_style), caption_prompt=COALESCE($3,caption_prompt) WHERE id=$4`,
-      [name || null, caption_style || null, caption_prompt || null, req.params.id]
+      `UPDATE accounts SET name=COALESCE($1,name), caption_style=COALESCE($2,caption_style) WHERE id=$3`,
+      [name || null, caption_style || null, req.params.id]
     );
+    // Saved writing style: undefined = leave as is, empty string = clear it
+    if (caption_prompt !== undefined) {
+      await db.run('UPDATE accounts SET caption_prompt=$1 WHERE id=$2', [String(caption_prompt || '').trim() || null, req.params.id]);
+    }
     res.json({ message: 'Account updated' });
   } catch (err) { next(err); }
 });
