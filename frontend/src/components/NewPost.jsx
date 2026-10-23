@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import TextOverlayEditor from './TextOverlayEditor';
+import CaptionOptions, { RegenerateBar } from './CaptionOptions';
 
 const STEPS = { INPUT: 'input', PROCESSING: 'processing', REVIEW: 'review' };
 
@@ -65,6 +66,7 @@ export default function NewPost() {
   const [error, setError]               = useState('');
   const [success, setSuccess]           = useState('');
   const [popup, setPopup]               = useState(null);
+  const [capOpts, setCapOpts]             = useState({});
   const fileRef = useRef();
   const PUBLISH_STATUS_POLL_MS = 3000;
   const PUBLISH_STATUS_TIMEOUT_MS = 90000;
@@ -82,7 +84,7 @@ export default function NewPost() {
     setBrightness(0); setContrast(1); setSaturation(1); setSpeed(1);
     setCropRatio('none');
     setScheduling(false); setScheduleTime('');
-    setError(''); setSuccess(''); setUrl(''); setFile(null);
+    setError(''); setSuccess(''); setUrl(''); setFile(null); setCapOpts({});
   }
 
   async function handleProcess() {
@@ -90,8 +92,8 @@ export default function NewPost() {
     setError(''); setStep(STEPS.PROCESSING);
     try {
       const data = file
-        ? await api.processFile(file, accountId || null)
-        : await api.processUrl(url.trim(), accountId || null);
+        ? await api.processFile(file, accountId || null, capOpts)
+        : await api.processUrl(url.trim(), accountId || null, capOpts);
       setResult(data);
       setCaption(data.generatedCaption || '');
       setOnScreenText(data.hookText || '');
@@ -467,6 +469,7 @@ export default function NewPost() {
         <Section label="Caption">
           <textarea id="caption" name="caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} placeholder="Edit your caption…" />
           <div style={s.charCount}>{caption.length} / 2200</div>
+          <RegenerateBar postId={result.postId} accountId={accountId} options={capOpts} onCaption={setCaption} />
         </Section>
 
         <Section label="Post to Instagram Account">
@@ -517,9 +520,9 @@ export default function NewPost() {
       <h2 style={s.h2}>New Post</h2>
       {error && <div style={s.errorBox}>{error}</div>}
 
-      <Section label="Account (optional)">
+      <Section label="Page (optional — sets the caption style)">
         <select id="account-select" name="account_id" value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
-          <option value="">No account selected</option>
+          <option value="">No page — universal caption</option>
           {accounts.map(a => <option key={a.id} value={a.id}>@{a.username} — {a.name}</option>)}
         </select>
       </Section>
@@ -556,6 +559,8 @@ export default function NewPost() {
           </>
         )}
       </Section>
+
+      <CaptionOptions value={capOpts} onChange={setCapOpts} isFile={!!file} />
 
       <button onClick={handleProcess} disabled={!url.trim() && !file} style={{ ...s.btn, ...s.btnPrimary, opacity: !url.trim() && !file ? 0.4 : 1 }}>
         Process Video →
