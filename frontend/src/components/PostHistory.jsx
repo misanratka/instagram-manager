@@ -15,18 +15,19 @@ export default function PostHistory() {
   const [posts, setPosts]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState('all');
+  const [removing, setRemoving] = useState(null);
 
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
     const hasPublishing = posts.some(p => p.status === 'publishing');
     if (!hasPublishing) return;
-    const t = setTimeout(load, 5000);
+    const t = setTimeout(() => load(true), 5000);
     return () => clearTimeout(t);
   }, [posts]);
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     const data = await api.getPosts().catch(() => []);
     setPosts(data);
     setLoading(false);
@@ -34,8 +35,10 @@ export default function PostHistory() {
 
   async function handleDelete(id) {
     if (!window.confirm('Delete this post?')) return;
-    await api.deletePost(id).catch(() => {});
-    await load();
+    setRemoving(id);
+    await Promise.all([api.deletePost(id).catch(() => {}), new Promise(r => setTimeout(r, 250))]);
+    setRemoving(null);
+    await load(true);
   }
 
   const visible = filter === 'all' ? posts : posts.filter(p => p.status === filter);
@@ -46,6 +49,7 @@ export default function PostHistory() {
       <div style={s.pageHead}>
         <h1 style={s.pageTitle}>Your Posts</h1>
         <span style={s.count}>{posts.length}</span>
+        <button onClick={() => load()} style={s.refresh} aria-label="Refresh">↻</button>
       </div>
 
       {/* Filter pills */}
@@ -61,15 +65,14 @@ export default function PostHistory() {
       {/* Loading */}
       {loading && (
         <div style={s.center}>
-          <div style={s.spinner} />
-          <span style={{ color: '#555', fontSize: 13 }}>Loading posts…</span>
+          {[0, 1, 2].map(i => <div key={i} className="skeleton" style={{ width: '100%', height: 110, animationDelay: `${i * 120}ms` }} />)}
         </div>
       )}
 
       {/* Empty */}
       {!loading && visible.length === 0 && (
         <div style={s.empty}>
-          <div style={s.emptyIcon}>📋</div>
+          <div style={s.emptyIcon} className="floaty">📋</div>
           <p style={s.emptyText}>No {filter !== 'all' ? filter : ''} posts yet</p>
           <p style={s.emptyHint}>Create your first post from the Create tab</p>
         </div>
@@ -77,11 +80,11 @@ export default function PostHistory() {
 
       {/* Post cards */}
       <div style={s.list}>
-        {visible.map(post => {
+        {!loading && visible.map((post, i) => {
           const st = STATUS[post.status] ?? STATUS.draft;
           const caption = post.final_caption || post.generated_caption || '';
           return (
-            <div key={post.id} style={s.card}>
+            <div key={post.id} style={{ ...s.card, animationDelay: `${Math.min(i, 8) * 45}ms` }} className={`fade-up card-hover${removing === post.id ? ' removing' : ''}`}>
               {/* Status bar */}
               <div style={s.cardTop}>
                 <span style={{ ...s.statusBadge, color: st.color, background: st.bg }}>
@@ -140,7 +143,8 @@ const s = {
   filters:     { display: 'flex', gap: 8, marginBottom: 24, overflowX: 'auto', paddingBottom: 4 },
   pill:        { padding: '7px 16px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: '#666', cursor: 'pointer', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 },
   pillOn:      { background: 'rgba(168,85,247,0.15)', borderColor: 'rgba(168,85,247,0.4)', color: '#c084fc' },
-  center:      { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '60px 0' },
+  center:      { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 12 },
+  refresh:     { marginLeft: 'auto', width: 36, height: 36, borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#aaa', fontSize: 18, cursor: 'pointer' },
   spinner:     { width: 28, height: 28, border: '2px solid rgba(255,255,255,0.08)', borderTop: '2px solid #a855f7', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   empty:       { textAlign: 'center', padding: '70px 20px' },
   emptyIcon:   { fontSize: 48, marginBottom: 16 },
