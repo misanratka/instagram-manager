@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from '../services/api';
+import { api, mediaUrl } from '../services/api';
 import TextOverlayEditor from './TextOverlayEditor';
 import CaptionOptions, { RegenerateBar } from './CaptionOptions';
 
@@ -67,6 +67,7 @@ export default function NewPost() {
   const [success, setSuccess]           = useState('');
   const [popup, setPopup]               = useState(null);
   const [capOpts, setCapOpts]             = useState({});
+  const [badPreview, setBadPreview]       = useState('');
   const fileRef = useRef();
   const PUBLISH_STATUS_POLL_MS = 3000;
   const PUBLISH_STATUS_TIMEOUT_MS = 90000;
@@ -282,7 +283,7 @@ export default function NewPost() {
   }
 
   const minTime      = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
-  const previewUrl   = enhancedUrl || result?.videoUrl;
+  const previewUrl   = mediaUrl(enhancedUrl || result?.videoUrl);
   const isIgCaption  = !!(result?.instagramUrl && !result?.videoUrl);
 
   if (popup) {
@@ -346,6 +347,11 @@ export default function NewPost() {
               <div style={{ fontSize: 13, color: '#aaa', marginBottom: 10 }}>
                 Caption rewritten from the original Instagram post. Upload the video file below to post it.
               </div>
+              {result?.downloadError && (
+                <div style={{ fontSize: 12, color: '#f0a060', marginBottom: 10, whiteSpace: 'pre-line', lineHeight: 1.5 }}>
+                  Why the video couldn't be downloaded: {String(result.downloadError).slice(0, 400)}
+                </div>
+              )}
               <IgVideoUpload postId={result.postId} onUploaded={url => setResult(r => ({ ...r, videoUrl: url, instagramUrl: null }))} />
             </div>
           </Section>
@@ -354,9 +360,14 @@ export default function NewPost() {
         {!isIgCaption && (
           <>
             <Section label="Video">
+              {badPreview && badPreview === previewUrl && (
+                <div style={{ ...s.errorBox, marginBottom: 10 }}>
+                  Preview couldn't load. The file may be missing on the server (it restarted) or in a format this browser can't play. Try uploading the video again.
+                </div>
+              )}
               <div style={{ position: 'relative', background: '#000', borderRadius: 8, overflow: 'hidden' }}>
                 {previewUrl
-                  ? <video src={previewUrl} controls style={{ width: '100%', display: 'block', maxHeight: 380, filter: enhancedUrl ? 'none' : `brightness(${1 + brightness}) contrast(${contrast}) saturate(${saturation})` }} />
+                  ? <video key={previewUrl} src={previewUrl} controls playsInline preload="metadata" onError={() => setBadPreview(previewUrl)} style={{ width: '100%', display: 'block', maxHeight: 380, filter: enhancedUrl ? 'none' : `brightness(${1 + brightness}) contrast(${contrast}) saturate(${saturation})` }} />
                   : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: 13 }}>No video preview</div>
                 }
                 {!enhancedUrl && textBoxes.map(box => {
