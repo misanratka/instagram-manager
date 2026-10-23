@@ -304,6 +304,7 @@ async function downloadVideo(url) {
     // Try every method and KEEP THE HIGHEST RESOLUTION (the old flow returned the
     // first success, which was usually the low-res page-scrape file).
     const candidates = []; // { name, file, w, h, px }
+    const failures = [];   // short reasons, shown to the user if every method fails
     let cookieFailed = false;
 
     async function tryCandidate(name, fn) {
@@ -319,6 +320,7 @@ async function downloadVideo(url) {
         try { fs.unlinkSync(file); } catch {}
       } catch (e) {
         logger.warn(`IG candidate [${name}] failed: ${e.message}`);
+        failures.push(`${name}: ${String((String(e.message).match(/ERROR:\s*(.+)/) || [])[1] || e.message).split('\n')[0].slice(0, 160)}`);
         if (name === 'ytdlp-cookies') cookieFailed = true;
         try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch {}
       }
@@ -367,10 +369,10 @@ async function downloadVideo(url) {
     }
 
     if (cookieFailed) {
-      throw new Error('Instagram download failed. Cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.');
+      throw new Error('Instagram download failed. Cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.\nDetails: ' + failures.join(' | '));
     }
     throw new Error(
-      'Instagram blocked this download from the server.\n\n' +
+      'Instagram blocked this download from the server.\nDetails: ' + failures.join(' | ') + '\n\n' +
       'Quick options:\n' +
       '1. Download the Reel to your phone → tap ⋮ → Download, then use "Upload Video File" here\n' +
       '2. For automatic downloads: add a free RAPIDAPI_KEY in Render settings (see below)'
