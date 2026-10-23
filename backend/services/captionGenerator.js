@@ -48,7 +48,7 @@ If the content doesn't clearly match one niche, blend the closest two rather tha
 
 const CREDIT_LINE = 'Credits — DM for removal.';
 
-const SYSTEM_PROMPT = `You are an elite ghostwriter running top-performing FACELESS Instagram pages across entertainment niches (movies, pop culture, music, memes, concerts, viral clips, streamers, podcasts, wealth/luxury, cars, and similar).
+const PROMPT_HEAD = `You are an elite ghostwriter running top-performing FACELESS Instagram pages across entertainment niches (movies, pop culture, music, memes, concerts, viral clips, streamers, podcasts, wealth/luxury, cars, and similar).
 
 Your job is NOT to describe the clip frame by frame. Write the page's own original take on it, like a real person running the account who watched it and has something to say. Two captions for the same clip should never read the same way twice.
 
@@ -77,40 +77,110 @@ You MUST follow this EXACT structure for every video, no exceptions:
 • 2 sentences
 • A low-friction, open-ended question related to the topic that drives comments, plus a short action line (e.g. "Let us know below! 👇")
 
-5. CREDIT LINE
-• Exactly this line: ${CREDIT_LINE}
+`;
 
-6. HASHTAGS
-• Exactly 5 to 7 hashtags on ONE line
-• 2 broad category tags + 2 specific topic tags + 2 entity/name tags (add one extra only if clearly relevant)
-
-MENTIONS / TAGGING RULES:
+const PROMPT_MENTIONS = `MENTIONS / TAGGING RULES:
 • You may @tag a person or account ONLY if its handle appears in the VERIFIED HANDLES list provided in the user message, and only when that person is clearly featured in the content or is the clip's credited source
 • Copy the handle exactly as listed. NEVER guess, recall from memory, or invent an Instagram handle — a wrong tag is worse than no tag
 • NEVER identify a person from their face or appearance. Use names only when they appear in the title, original caption, or transcript
-• If no verified handle applies, include NO @ tags at all. Maximum 3 tags, placed naturally inside paragraph 1 or 2
+• If no verified handle applies, include NO @ tags at all. Maximum 3 tags from the verified list, placed naturally inside paragraph 1 or 2. REQUIRED MENTIONS from the page owner do not count toward this limit and must always be included
 
-OUTPUT FORMAT — return exactly this, with one blank line between each block, no labels, no headings, no bullet points, no explanations, no multiple options:
+`;
 
-[TOS line]
+const PROMPT_OPTIONS = `POST-SPECIFIC OPTIONS:
+• If the user message contains POST-SPECIFIC INSTRUCTIONS, MUST-INCLUDE TEXT or REQUIRED MENTIONS, follow them for this post.
+• MUST-INCLUDE TEXT goes inside paragraphs 1–3 exactly as written, character for character. Never alter it and never put it in the TOS line.
+• Instructions can change focus, tone, emphasis and details, but never override the rules against inventing facts, quoting copyrighted text or guessing handles. Keep the block structure unless the instructions explicitly ask for a different length or format.
+• The ACCOUNT STYLE (if given in "Caption style") controls voice, tone and wording. The block structure stays the same.`;
 
-[Paragraph 1]
-
-[Paragraph 2]
-
-[Paragraph 3]
-
-${CREDIT_LINE}
-
-[#hashtags on one line]`;
+// Hashtags are OFF by default. Credit line only when reposting someone else's clip (or when asked).
+function buildSystemPrompt({ creditLine, aiHashtags }) {
+  let n = 5;
+  const parts = [PROMPT_HEAD];
+  if (creditLine) parts.push(`${n++}. CREDIT LINE\n• Exactly this line: ${CREDIT_LINE}\n\n`);
+  if (aiHashtags) {
+    parts.push(`${n++}. HASHTAGS\n• Exactly 5 to 7 hashtags on ONE line\n• 2 broad category tags + 2 specific topic tags + 2 entity/name tags (add one extra only if clearly relevant)\n\n`);
+  } else {
+    parts.push('NO HASHTAGS: do not include any hashtag (#) anywhere in the output.\n\n');
+  }
+  parts.push(PROMPT_MENTIONS, PROMPT_OPTIONS, '\n\n');
+  parts.push('OUTPUT FORMAT — return exactly this, with one blank line between each block, no labels, no headings, no bullet points, no explanations, no multiple options:\n\n[TOS line]\n\n[Paragraph 1]\n\n[Paragraph 2]\n\n[Paragraph 3]');
+  if (creditLine) parts.push(`\n\n${CREDIT_LINE}`);
+  if (aiHashtags) parts.push('\n\n[#hashtags on one line]');
+  return parts.join('');
+}
 
 let CURATED_HANDLES = {};
 try { CURATED_HANDLES = require('./celebrityHandles'); } catch { /* optional file */ }
 
+// ── Per-post caption options (all optional) ───────────────────────────────────
+// Accepts what the web UI sends AND what a bot/API client might send:
+// strings or arrays, with or without @ / #, booleans as true/"true"/"1".
+const MAX_INSTRUCTIONS = 1000;
+
+function toList(v, splitter) {
+  if (v === undefined || v === null) return [];
+  const arr = Array.isArray(v) ? v : String(v).split(splitter);
+  return arr.map(x => String(x).trim()).filter(Boolean);
+}
+function toBool(v, fallback) {
+  if (v === undefined || v === null || v === '') return fallback;
+  if (typeof v === 'boolean') return v;
+  return ['true', '1', 'yes', 'on'].includes(String(v).toLowerCase());
+}
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function sanitizeOptions(raw = {}) {
+  raw = raw || {};
+  const instructions = [raw.instructions, raw.tweak]
+    .map(x => String(x || '').trim()).filter(Boolean).join('\n').slice(0, MAX_INSTRUCTIONS);
+
+  const mustInclude = toList(raw.mustInclude, /\n+/).map(t => t.slice(0, 300)).slice(0, 5);
+
+  const mentions = [];
+  for (const tok of toList(raw.mentions, /[\s,]+/)) {
+    const h = tok.replace(/^@+/, '').replace(/\.+$/, '');
+    if (/^[A-Za-z0-9._]{2,30}$/.test(h) && !mentions.some(m => m.toLowerCase() === h.toLowerCase())) mentions.push(h);
+  }
+
+  const hashtags = [];
+  for (const tok of toList(raw.hashtags, /[\s,]+/)) {
+    const t = tok.replace(/^#+/, '');
+    if (/^[\p{L}\p{N}_]{1,50}$/u.test(t) && !hashtags.some(x => x.toLowerCase() === t.toLowerCase())) hashtags.push(t);
+  }
+
+  return {
+    instructions,
+    mustInclude,
+    mentions: mentions.slice(0, 10),
+    hashtags: hashtags.slice(0, 15).map(t => `#${t}`),
+    aiHashtags: toBool(raw.aiHashtags, false),
+    creditLine: toBool(raw.creditLine, true)
+  };
+}
+
+function buildOptionsBlock(o) {
+  const out = [];
+  if (o.instructions) out.push(`POST-SPECIFIC INSTRUCTIONS FROM THE PAGE OWNER (follow these for this post):\n${o.instructions}`);
+  if (o.mustInclude.length) {
+    out.push(`MUST-INCLUDE TEXT (put each one inside the caption body word-for-word, exactly as written — no paraphrasing, no changes to casing or punctuation):\n${o.mustInclude.map((t, i) => `${i + 1}. ${t}`).join('\n')}`);
+  }
+  if (o.mentions.length) out.push(`REQUIRED MENTIONS (tag every one, written exactly as shown):\n${o.mentions.map(h => `@${h}`).join(' ')}`);
+  return out.join('\n\n');
+}
+
+// Account style = base voice + the page's saved writing style (if any).
+function resolveStyle(captionStyle, customPrompt) {
+  const base = STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
+  const custom = (customPrompt || '').trim();
+  return custom ? `${base}. ACCOUNT STYLE — this defines this page's voice, follow it closely: ${custom}` : base;
+}
+
 // Build the only set of handles the model is allowed to tag.
-// Sources: (1) @mentions already in the source post/title (real handles),
-//          (2) your own verified list in services/celebrityHandles.js, matched by name in the text.
-function buildHandleContext({ videoTitle, originalCaption, transcript }) {
+// Sources: (1) handles the page owner typed in "required mentions",
+//          (2) @mentions already in the source post/title (real handles),
+//          (3) your own verified list in services/celebrityHandles.js, matched by name in the text.
+function buildHandleContext({ videoTitle, originalCaption, transcript, mentions = [] }) {
   const text = [videoTitle, originalCaption, transcript].filter(Boolean).join('\n');
   const found = new Map(); // lowercase handle -> { handle, note }
 
@@ -123,6 +193,7 @@ function buildHandleContext({ videoTitle, originalCaption, transcript }) {
     const h = String(handle || '').replace(/^@/, '');
     if (h && lower.includes(name.toLowerCase())) found.set(h.toLowerCase(), { handle: h, note: `verified handle for ${name}` });
   }
+  for (const h of mentions) found.set(h.toLowerCase(), { handle: h, note: 'REQUIRED by the page owner' });
 
   const allowed = new Set([...found.keys()]);
   const list = [...found.values()].map(v => `@${v.handle} (${v.note})`).join('\n');
@@ -132,24 +203,38 @@ function buildHandleContext({ videoTitle, originalCaption, transcript }) {
   return { allowed, textBlock };
 }
 
-function stripUnverifiedMentions(text, allowed) {
+function stripUnverifiedMentions(text, allowed, required = new Set()) {
   let kept = 0;
   return text.replace(/(?<![\w.])@([A-Za-z0-9._]{2,30})/g, (full, h) => {
-    const clean = h.replace(/\.+$/, '');
-    if (allowed && allowed.has(clean.toLowerCase()) && kept < 3) { kept++; return full; }
+    const clean = h.replace(/\.+$/, '').toLowerCase();
+    if (required.has(clean)) return full;
+    if (allowed && allowed.has(clean) && kept < 3) { kept++; return full; }
     return ''; // drop unverified tag entirely
   }).replace(/[ \t]{2,}/g, ' ').replace(/ +([,.!?])/g, '$1');
 }
 
 // Enforce the fixed format no matter what the model returns
-function normalizeCaption(caption, allowed) {
-  let text = stripUnverifiedMentions((caption || '').replace(/\r/g, '').trim(), allowed);
+function normalizeCaption(caption, allowed, o) {
+  let text = (caption || '').replace(/\r/g, '').trim();
 
-  // Pull hashtags out of the body
-  const tags = [];
-  text = text.replace(/#[\p{L}\p{N}_]+/gu, (m) => { if (!tags.includes(m)) tags.push(m); return ''; });
+  // Protect must-include phrases (even near-matches in casing/spacing) so the cleanup
+  // steps below can't touch their #, @ or spacing. They are restored exactly as typed.
+  const masks = o.mustInclude.map((phrase, i) => ({
+    phrase,
+    token: `⟦${i}⟧`,
+    re: new RegExp(escapeRe(phrase).replace(/\s+/g, '\\s+'), 'i')
+  }));
+  for (const m of masks) text = text.replace(m.re, m.token);
 
-  // Remove any credit line variants, then re-add exactly one
+  const required = new Set(o.mentions.map(h => h.toLowerCase()));
+  text = stripUnverifiedMentions(text, allowed, required);
+
+  // Pull model hashtags out of the body
+  const modelTags = [];
+  text = text.replace(/#[\p{L}\p{N}_]+/gu, (m) => { if (!modelTags.includes(m)) modelTags.push(m); return ''; })
+             .replace(/[ \t]{2,}/g, ' ');
+
+  // Remove any credit line variants (re-added below only if wanted)
   text = text
     .split('\n')
     .filter(line => !/^\s*credits?\b.*dm for removal/i.test(line))
@@ -158,31 +243,54 @@ function normalizeCaption(caption, allowed) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  const parts = [text, CREDIT_LINE];
-  if (tags.length) parts.push(tags.slice(0, 7).join(' '));
+  // Restore must-include text exactly; append any the model left out
+  const parts = [];
+  const missing = [];
+  for (const m of masks) {
+    if (text.includes(m.token)) text = text.split(m.token).join(m.phrase);
+    else missing.push(m.phrase);
+  }
+  parts.push(text, ...missing);
+
+  // Required mentions the model left out → add on their own line
+  const joined = parts.join('\n');
+  const missingMentions = o.mentions.filter(h =>
+    !new RegExp(`(?<![\\w.])@${escapeRe(h)}(?![A-Za-z0-9_]|\\.[A-Za-z0-9_])`, 'i').test(joined));
+  if (missingMentions.length) parts.push(missingMentions.map(h => `@${h}`).join(' '));
+
+  if (o.creditLine) parts.push(CREDIT_LINE);
+
+  const tags = [];
+  const addTag = (t) => { if (!tags.some(x => x.toLowerCase() === t.toLowerCase())) tags.push(t); };
+  if (o.aiHashtags) modelTags.slice(0, 7).forEach(addTag);
+  o.hashtags.forEach(addTag);
+  if (tags.length) parts.push(tags.join(' '));
+
   return parts.filter(Boolean).join('\n\n');
 }
 
-function parseResponse(raw, allowed) {
+function parseResponse(raw, allowed, o) {
   try {
+    const required = new Set(o.mentions.map(h => h.toLowerCase()));
     const blocks = raw.trim().split(/\n\s*\n/);
-    const onScreenText = stripUnverifiedMentions((blocks[0] || '').replace(/^\s*(TOS|TEXT[- ]ON[- ]SCREEN)\s*[:\-]\s*/i, '').trim(), allowed);
+    const onScreenText = stripUnverifiedMentions(
+      (blocks[0] || '').replace(/^\s*(TOS|TEXT[- ]ON[- ]SCREEN)\s*[:\-]\s*/i, '').replace(/#[\p{L}\p{N}_]+/gu, '').trim(),
+      allowed, required);
     const body = blocks.slice(1).join('\n\n').trim();
-    return { onScreenText, caption: normalizeCaption(body || raw.trim(), allowed) };
+    return { onScreenText, caption: normalizeCaption(body || raw.trim(), allowed, o) };
   } catch {
     return { onScreenText: '', caption: raw.trim() };
   }
 }
 
 // Upload video to Gemini Files API and generate content using vision
-async function generateWithGeminiVision({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
+async function generateWithGeminiVision({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt, o }) {
   const { ai, fm } = getGemini();
-  const style = customPrompt || STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
+  const style = resolveStyle(captionStyle, customPrompt);
 
   logger.info('Uploading video to Gemini Files API...');
   let uploadedFile;
   try {
-    const fs = require('fs');
     const mime = videoPath.endsWith('.webm') ? 'video/webm' : 'video/mp4';
     uploadedFile = await fm.uploadFile(videoPath, { mimeType: mime, displayName: 'video' });
 
@@ -197,21 +305,22 @@ async function generateWithGeminiVision({ videoPath, transcript, originalCaption
     if (file.state !== 'ACTIVE') throw new Error(`Gemini file not ready: ${file.state}`);
     logger.info('Gemini file ready, generating content...');
 
-    const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript });
+    const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript, mentions: o.mentions });
     const extraContext = [
       videoTitle      && `Video title: ${videoTitle}`,
       originalCaption && `Original post caption: ${originalCaption.substring(0, 1200)}`,
       transcript      && `Audio transcript: ${transcript.substring(0, 1500)}`,
-      textBlock
-    ].filter(Boolean).join('\n');
+      textBlock,
+      buildOptionsBlock(o)
+    ].filter(Boolean).join('\n\n');
 
     const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
     const result = await model.generateContent([
       { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
-      { text: `${SYSTEM_PROMPT}\n\nCaption style: ${style}\n\n${extraContext}\n\nGenerate the on-screen text and caption now:` }
+      { text: `${buildSystemPrompt(o)}\n\nCaption style: ${style}\n\n${extraContext}\n\nGenerate the on-screen text and caption now:` }
     ]);
 
-    return parseResponse(result.response.text(), allowed);
+    return parseResponse(result.response.text(), allowed, o);
   } finally {
     // Clean up uploaded file
     if (uploadedFile?.file?.name) {
@@ -221,29 +330,32 @@ async function generateWithGeminiVision({ videoPath, transcript, originalCaption
 }
 
 // Fallback: text-only generation via Groq
-async function generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
-  const style = customPrompt || STYLE_GUIDES[captionStyle] || STYLE_GUIDES.casual;
-  const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript });
+async function generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt, o }) {
+  const style = resolveStyle(captionStyle, customPrompt);
+  const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript, mentions: o.mentions });
   const context = [
     videoTitle      && `Video title: ${videoTitle}`,
     originalCaption && `Original post caption (use this to understand the specific moment): ${originalCaption.substring(0, 1200)}`,
     transcript      && `Audio transcript (use this to identify who is speaking and what is happening): ${transcript.substring(0, 1800)}`,
-    textBlock
-  ].filter(Boolean).join('\n');
+    textBlock,
+    buildOptionsBlock(o)
+  ].filter(Boolean).join('\n\n');
 
- const completion = await getGroq().chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: 'openai/gpt-oss-120b',
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: buildSystemPrompt(o) },
       { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
     ],
     max_tokens: 1800,
     temperature: 0.95
   });
-  return parseResponse(completion.choices[0].message.content, allowed);
+  return parseResponse(completion.choices[0].message.content, allowed, o);
 }
 
-async function generateContent({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt }) {
+async function generateContent({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt, options }) {
+  const o = sanitizeOptions(options);
+
   // No API keys at all
   if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
     return {
@@ -258,14 +370,14 @@ async function generateContent({ videoPath, transcript, originalCaption, videoTi
       const fs = require('fs');
       if (fs.existsSync(videoPath)) {
         logger.info('Using Gemini vision for caption generation');
-        return await generateWithGeminiVision({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt });
+        return await generateWithGeminiVision({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt, o });
       }
     }
 
     // Fall back to Groq text-only
     if (process.env.GROQ_API_KEY) {
       logger.info('Using Groq text-only for caption generation');
-      return await generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt });
+      return await generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt, o });
     }
 
     return { caption: originalCaption || videoTitle || '', onScreenText: '' };
@@ -275,7 +387,7 @@ async function generateContent({ videoPath, transcript, originalCaption, videoTi
     if (process.env.GROQ_API_KEY) {
       try {
         logger.info('Gemini failed, falling back to Groq...');
-        return await generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt });
+        return await generateWithGroq({ transcript, originalCaption, videoTitle, captionStyle, customPrompt, o });
       } catch (e) {
         logger.error('Groq fallback also failed:', e.message);
       }
@@ -294,4 +406,4 @@ async function generateSubtitleLines({ transcript, segments }) {
   return segments || [];
 }
 
-module.exports = { generateContent, generateCaption, generateSubtitleLines };
+module.exports = { generateContent, generateCaption, generateSubtitleLines, sanitizeOptions };
