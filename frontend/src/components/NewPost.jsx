@@ -68,6 +68,7 @@ export default function NewPost() {
   const [popup, setPopup]               = useState(null);
   const [capOpts, setCapOpts]             = useState({});
   const [badPreview, setBadPreview]       = useState('');
+  const [captionBusy, setCaptionBusy]     = useState(false);
   const fileRef = useRef();
   const PUBLISH_STATUS_POLL_MS = 3000;
   const PUBLISH_STATUS_TIMEOUT_MS = 90000;
@@ -345,14 +346,27 @@ export default function NewPost() {
           <Section label="Video">
             <div style={s.igNotice}>
               <div style={{ fontSize: 13, color: '#aaa', marginBottom: 10 }}>
-                Caption rewritten from the original Instagram post. Upload the video file below to post it.
+                {result?.captionSkipped
+                  ? "Instagram blocked this video, so no caption was written (it won't guess). Upload the video file below and the caption will be written from the video."
+                  : 'Caption rewritten from the original Instagram post. Upload the video file below to post it.'}
               </div>
               {result?.downloadError && (
                 <div style={{ fontSize: 12, color: '#f0a060', marginBottom: 10, whiteSpace: 'pre-line', lineHeight: 1.5 }}>
                   Why the video couldn't be downloaded: {String(result.downloadError).slice(0, 400)}
                 </div>
               )}
-              <IgVideoUpload postId={result.postId} onUploaded={url => setResult(r => ({ ...r, videoUrl: url, instagramUrl: null }))} />
+              <IgVideoUpload postId={result.postId} onUploaded={async url => {
+                const skipped = result?.captionSkipped;
+                setResult(r => ({ ...r, videoUrl: url, instagramUrl: null, captionSkipped: false }));
+                if (!skipped) return;
+                setCaptionBusy(true);
+                try {
+                  const res = await api.regenerateCaption(result.postId, accountId, capOpts);
+                  setCaption(res.generatedCaption || '');
+                  if (res.hookText && !onScreenText) setOnScreenText(res.hookText);
+                } catch (e) { setError(e.message); }
+                finally { setCaptionBusy(false); }
+              }} />
             </div>
           </Section>
         )}
@@ -496,7 +510,7 @@ export default function NewPost() {
         )}
 
         <Section label="Caption">
-          <textarea id="caption" name="caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} placeholder="Edit your caption…" />
+          <textarea id="caption" name="caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} disabled={captionBusy} placeholder={captionBusy ? 'Writing caption from your video…' : 'Edit your caption…'} />
           <div style={s.charCount}>{caption.length} / 2200</div>
           <RegenerateBar postId={result.postId} accountId={accountId} options={capOpts} onCaption={setCaption} />
         </Section>
