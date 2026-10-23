@@ -338,10 +338,10 @@ export default function NewPost() {
             <Section label="Video">
               <div style={{ position: 'relative', background: '#000', borderRadius: 8, overflow: 'hidden' }}>
                 {previewUrl
-                  ? <video src={previewUrl} controls style={{ width: '100%', display: 'block', maxHeight: 380, filter: `brightness(${1 + brightness}) contrast(${contrast}) saturate(${saturation})` }} />
+                  ? <video src={previewUrl} controls style={{ width: '100%', display: 'block', maxHeight: 380, filter: enhancedUrl ? 'none' : `brightness(${1 + brightness}) contrast(${contrast}) saturate(${saturation})` }} />
                   : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: 13 }}>No video preview</div>
                 }
-                {textBoxes.map(box => {
+                {!enhancedUrl && textBoxes.map(box => {
                   const isCover = !box.text.trim() && box.bg !== 'none';
                   const isBlack = box.bg === 'black' || box.bg === 'dark';
                   const isWhite = box.bg === 'white' || box.bg === 'light';
