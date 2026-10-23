@@ -39,10 +39,53 @@
         overflow-x: hidden;
       }
 
-      @keyframes spin    { to { transform: rotate(360deg); } }
-      @keyframes pulse   { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-      @keyframes fadeIn  { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes spin     { to { transform: rotate(360deg); } }
+      @keyframes pulse    { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+      @keyframes fadeIn   { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes slideUp  { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes fadeUp   { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+      @keyframes popIn    { from { opacity: 0; transform: translateY(-6px) scale(.95); } to { opacity: 1; transform: none; } }
+      @keyframes shimmer  { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+      @keyframes toastIn  { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+      @keyframes expand   { from { opacity: 0; transform: translateY(-10px) scaleY(.96); } to { opacity: 1; transform: none; } }
+      @keyframes floaty   { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+      :root { --ease: cubic-bezier(.22,1,.36,1); }
+
+      /* ---- Motion helpers (use via className) ---- */
+      .tab-enter  { animation: fadeUp .38s var(--ease) both; }
+      .fade-up    { animation: fadeUp .45s var(--ease) both; }
+      .pop-in     { animation: popIn .18s var(--ease) both; transform-origin: top right; }
+      .toast      { animation: toastIn .3s var(--ease) both; }
+      .expand     { animation: expand .3s var(--ease) both; transform-origin: top; }
+      .floaty     { animation: floaty 3s ease-in-out infinite; }
+      .removing   { opacity: 0; transform: translateX(24px) scale(.96); transition: all .25s var(--ease); pointer-events: none; }
+      .skeleton   {
+        background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 37%, rgba(255,255,255,.04) 63%);
+        background-size: 800px 100%; animation: shimmer 1.4s linear infinite; border-radius: 12px;
+      }
+      .card-hover { transition: transform .25s var(--ease), border-color .25s, background .25s, box-shadow .25s; }
+
+      /* ---- Global interaction feel (applies to every component) ---- */
+      button, [role="button"], label, select {
+        transition: transform .18s var(--ease), background-color .2s, border-color .2s, color .2s, opacity .2s, box-shadow .2s, filter .2s;
+        -webkit-user-select: none; user-select: none; touch-action: manipulation;
+      }
+      button:not(:disabled):active { transform: scale(.96); }
+      button:disabled { cursor: not-allowed; }
+      @media (hover: hover) {
+        button:not(:disabled):hover { filter: brightness(1.15); }
+        .card-hover:hover { transform: translateY(-2px); border-color: rgba(168,85,247,.25) !important; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+      }
+      input, textarea, select { transition: border-color .2s, box-shadow .2s, background .2s; }
+      :focus-visible { outline: 2px solid rgba(168,85,247,.7); outline-offset: 2px; }
+      html { scroll-behavior: smooth; }
+      body { overscroll-behavior-y: none; }
+
+      /* Respect users who prefer less motion */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+      }
 
       input, textarea, select {
         -webkit-appearance: none;
