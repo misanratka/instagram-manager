@@ -87,13 +87,31 @@ export default function NewPost() {
     setError(''); setSuccess(''); setUrl(''); setFile(null); setCapOpts({});
   }
 
-  async function handleProcess() {
-    if (!url.trim() && !file) return setError('Enter a video URL or upload a file');
+  // One tap: read the copied link from the clipboard, fill the box, and start processing.
+  async function handlePasteAndProcess() {
+    setError('');
+    let text = '';
+    try {
+      if (!navigator.clipboard?.readText) throw new Error('unsupported');
+      text = await navigator.clipboard.readText();
+    } catch {
+      return setError('Could not read the clipboard. Allow clipboard access for this site, or paste the link into the box below.');
+    }
+    const match = (text || '').match(/https?:\/\/[^\s]+/i);
+    if (!match) return setError("No link found in your clipboard. Copy the video link first, then tap again.");
+    const link = match[0].replace(/[)\].,;]+$/, '');
+    setFile(null); setUrl(link);
+    await handleProcess(link);
+  }
+
+  async function handleProcess(linkOverride) {
+    const link = (typeof linkOverride === 'string' ? linkOverride : url).trim();
+    if (!link && !file) return setError('Enter a video URL or upload a file');
     setError(''); setStep(STEPS.PROCESSING);
     try {
       const data = file
         ? await api.processFile(file, accountId || null, capOpts)
-        : await api.processUrl(url.trim(), accountId || null, capOpts);
+        : await api.processUrl(link, accountId || null, capOpts);
       setResult(data);
       setCaption(data.generatedCaption || '');
       setOnScreenText(data.hookText || '');
@@ -546,6 +564,10 @@ export default function NewPost() {
 
         {!file && (
           <>
+            <button type="button" onClick={handlePasteAndProcess}
+              style={{ ...s.btn, ...s.btnSecondary, width: '100%', justifyContent: 'center', marginBottom: 4 }}>
+              📋 Paste copied link &amp; process
+            </button>
             <div style={s.orDivider}>or paste a link</div>
             <input
               id="video-url"
