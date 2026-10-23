@@ -29,6 +29,19 @@ async function request(method, path, data, isForm = false) {
   return json;
 }
 
+// UI state (camelCase) -> API fields (snake_case). Empty values are omitted so bots/humans can skip any of them.
+function toApiOptions(o = {}) {
+  const out = {};
+  if (o.instructions?.trim()) out.instructions = o.instructions.trim();
+  if (o.mustInclude?.trim())  out.must_include = o.mustInclude.trim();
+  if (o.mentions?.trim())     out.mentions = o.mentions.trim();
+  if (o.hashtags?.trim())     out.hashtags = o.hashtags.trim();
+  if (o.aiHashtags)           out.ai_hashtags = true;
+  if (typeof o.creditLine === 'boolean') out.credit_line = o.creditLine;
+  if (o.tweak?.trim())        out.tweak = o.tweak.trim();
+  return out;
+}
+
 export const api = {
   // Accounts
   getAccounts:   ()         => request('GET',    '/accounts'),
@@ -36,13 +49,17 @@ export const api = {
   updateAccount: (id, data) => request('PUT',    `/accounts/${id}`, data),
   deleteAccount: (id)       => request('DELETE', `/accounts/${id}`),
   // Content processing
-  processUrl:  (url, account_id) => request('POST', '/content/process-url', { url, account_id }),
-  processFile: (file, account_id) => {
+  processUrl:  (url, account_id, options = {}) =>
+    request('POST', '/content/process-url', { url, account_id, ...toApiOptions(options) }),
+  processFile: (file, account_id, options = {}) => {
     const fd = new FormData();
     fd.append('video', file);
     if (account_id) fd.append('account_id', account_id);
+    Object.entries(toApiOptions(options)).forEach(([k, v]) => fd.append(k, String(v)));
     return request('POST', '/content/process-file', fd, true);
   },
+  regenerateCaption: (postId, account_id, options = {}) =>
+    request('POST', `/content/regenerate/${postId}`, { account_id: account_id || undefined, ...toApiOptions(options) }),
   updateCaption: (postId, data) => request('PUT', `/content/caption/${postId}`, data),
   attachVideo: (postId, file) => {
     const fd = new FormData();
