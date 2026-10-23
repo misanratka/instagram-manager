@@ -15,6 +15,12 @@ export default function AccountManager() {
   const [success, setSuccess]   = useState('');
 
   useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(''), 3500);
+    return () => clearTimeout(t);
+  }, [success]);
+
+  useEffect(() => {
     load();
     const params = new URLSearchParams(window.location.search);
     window.history.replaceState({}, '', window.location.pathname);
@@ -63,8 +69,8 @@ export default function AccountManager() {
       </div>
 
       {/* Alerts */}
-      {error   && <div style={s.alertErr}>{error}</div>}
-      {success && <div style={s.alertOk}>{success}</div>}
+      {error   && <div style={s.alertErr} className="toast">{error}</div>}
+      {success && <div style={s.alertOk} className="toast">✓ {success}</div>}
 
       {/* Connect buttons */}
       <div style={s.connectRow}>
@@ -90,7 +96,7 @@ export default function AccountManager() {
 
       {/* Form */}
       {showForm && (
-        <div style={s.formCard}>
+        <div style={s.formCard} className="expand">
           <h3 style={s.formTitle}>{editId ? 'Edit Account' : 'Add Account'}</h3>
           <form onSubmit={handleSubmit}>
             <Field label="Display Name">
@@ -129,15 +135,15 @@ export default function AccountManager() {
       {/* Accounts list */}
       {accounts.length === 0 && !showForm && (
         <div style={s.empty}>
-          <div style={s.emptyIcon}>◎</div>
+          <div style={s.emptyIcon} className="floaty">◎</div>
           <p style={s.emptyTitle}>No accounts yet</p>
           <p style={s.emptyHint}>Connect your Instagram to get started</p>
         </div>
       )}
 
       <div style={s.list}>
-        {accounts.map(a => (
-          <div key={a.id} style={s.card}>
+        {accounts.map((a, i) => (
+          <div key={a.id} style={{ ...s.card, animationDelay: `${Math.min(i, 8) * 55}ms` }} className="fade-up card-hover">
             <div style={s.cardLeft}>
               <div style={s.avatar}>{(a.username || a.name || '?')[0].toUpperCase()}</div>
               <div>
