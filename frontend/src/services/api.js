@@ -1,5 +1,13 @@
 const BASE = (import.meta.env.VITE_BACKEND_URL ?? '') + '/api';
 
+// Makes any returned video link work no matter how PUBLIC_URL is set: keeps only the /uploads/<file> part
+// and points it at this app's backend (same site by default, or VITE_BACKEND_URL when hosted separately).
+export function mediaUrl(u) {
+  if (!u) return u;
+  const m = String(u).match(/\/uploads\/[^?#]+/);
+  return m ? (import.meta.env.VITE_BACKEND_URL ?? '').replace(/\/$/, '') + m[0] : u;
+}
+
 function getUserId() {
   try {
     const params = new URLSearchParams(window.location.search);
