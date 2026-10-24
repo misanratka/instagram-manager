@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('./logger');
+const { computeLayout } = require('./brandCard');
 
 function getUploadDir() {
   return path.resolve(process.env.UPLOAD_DIR || './uploads');
@@ -34,7 +35,10 @@ function getVideoDimensions(videoPath) {
       if (err) return resolve({ width: 1280, height: 720 });
       try {
         const stream = JSON.parse(stdout).streams[0];
-        resolve({ width: stream.width || 1280, height: stream.height || 720 });
+        let w = stream.width || 1280, h = stream.height || 720;
+        const rotRaw = stream.tags?.rotate ?? (stream.side_data_list || []).find(d => d.rotation !== undefined)?.rotation ?? 0;
+        if (Math.abs(Number(rotRaw)) % 180 === 90) [w, h] = [h, w];   // ffmpeg auto-rotates, so use the displayed size
+        resolve({ width: w, height: h });
       } catch { resolve({ width: 1280, height: 720 }); }
     });
   });
@@ -321,7 +325,7 @@ function writeSubtitleFile(content, inputPath, ext) {
   return p;
 }
 
-async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = [], burnSubtitles, subtitleStyle = 'standard', enhance, trim, adjustments, speed, cropRatio, qualityPreset, denoise, sharpness, upscale }) {
+async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = [], burnSubtitles, subtitleStyle = 'standard', enhance, trim, adjustments, speed, cropRatio, qualityPreset, denoise, sharpness, upscale, brand }) {
   const uploadDir = getUploadDir();
   const outFilename = `enhanced_${uuidv4()}.mp4`;
   const outputPath = path.join(uploadDir, outFilename);
@@ -330,6 +334,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   const trimStart = Number(trim?.start) || 0;
   const trimEnd   = Number(trim?.end)   || 0;
   if (trimStart > 0) inputArgs.push('-ss', trimStart.toFixed(3));
+  if (brand?.cardPath) inputArgs.splice(3, 0, '-loop', '1', '-i', brand.cardPath);  // input 0 = brand card image, input 1 = video
   inputArgs.push('-i', inputPath);
   if (trimEnd > trimStart && trimEnd > 0) {
     inputArgs.push('-t', (trimEnd - trimStart).toFixed(3));
@@ -341,6 +346,16 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   // 1. Crop first (changes dimensions)
   const cropFilter = await computeCropFilter(inputPath, cropRatio);
   if (cropFilter) vFilters.push(cropFilter);
+
+  // Brand layout: where the card and the (scaled) video sit on a 1080x1920 canvas
+  let layout = null;
+  if (brand?.cardPath) {
+    const dims = await getVideoDimensions(inputPath);
+    let sw = dims.width, sh = dims.height;
+    const m = cropFilter && cropFilter.match(/^crop=(\d+):(\d+)/);
+    if (m) { sw = Number(m[1]); sh = Number(m[2]); }
+    layout = computeLayout({ cardH: brand.cardH, srcW: sw, srcH: sh });
+  }
 
   // 2. Speed
   const spd = Number(speed) || 1;
@@ -376,7 +391,9 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   }
 
   // Upscale with Lanczos
-  if (upscale && upscale !== 'none') {
+  if (layout) {
+    // final scaling happens once, in the brand layout step below
+  } else if (upscale && upscale !== 'none') {
     vFilters.push(`scale=${upscale}:flags=lanczos+accurate_rnd`);
   } else if (preset && textOverlays.length === 0) {
     vFilters.push("scale=w='if(gt(ih,iw),1080,min(1920,iw))':h=-2:flags=lanczos+accurate_rnd");
@@ -451,9 +468,24 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     if (f) vFilters.push(f);
   }
 
-  const crf = preset?.crf || (enhance ? '18' : '23');
+  // 7. Brand layout: scale video, place it on the canvas, overlay the card
+  if (layout) {
+    vFilters.push(
+      `scale=${layout.vidW}:${layout.vidH}:flags=lanczos+accurate_rnd`,
+      'setsar=1',
+      `pad=${layout.canvasW}:${layout.canvasH}:${layout.vidX}:${layout.vidY}:color=black`
+    );
+  }
+
+  const crf = preset?.crf || (enhance || layout ? '18' : '23');
   const args = [...inputArgs];
-  if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
+  if (layout) {
+    args.push(
+      '-filter_complex',
+      `[1:v]${vFilters.join(',')}[bg];[bg][0:v]overlay=${layout.cardX}:${layout.cardY}:shortest=1,format=yuv420p[vout]`,
+      '-map', '[vout]', '-map', '1:a?'
+    );
+  } else if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
   // DEBUG LOGGING — remove after diagnosis
