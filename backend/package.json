@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@napi-rs/canvas": "^1.0.13",
     "axios": "^1.6.7",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
@@ -26,4 +27,3 @@
     "nodemon": "^3.0.3"
   }
 }
-
