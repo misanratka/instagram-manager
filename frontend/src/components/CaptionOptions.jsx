@@ -7,7 +7,7 @@ export default function CaptionOptions({ value, onChange, isFile }) {
   const [open, setOpen] = useState(false);
   const set = (k, v) => onChange({ ...value, [k]: v });
   const creditOn = typeof value.creditLine === 'boolean' ? value.creditLine : !isFile; // auto: on for links, off for own clips
-  const filled = ['instructions', 'mustInclude', 'mentions', 'hashtags'].filter(k => value[k]?.trim()).length + (value.aiHashtags ? 1 : 0);
+  const filled = ['instructions', 'mustInclude', 'mentions', 'hashtags', 'tosExact', 'tosMustInclude'].filter(k => value[k]?.trim()).length + (value.aiHashtags ? 1 : 0);
 
   return (
     <div style={st.wrap}>
@@ -26,6 +26,16 @@ export default function CaptionOptions({ value, onChange, isFile }) {
           <Field label="Exact phrase to include" hint="Added word-for-word. One phrase per line.">
             <textarea id="cap-must-include" name="must_include" rows={2} style={st.input} value={value.mustInclude || ''}
               onChange={e => set('mustInclude', e.target.value)} placeholder="e.g. Link in bio for the full video" />
+          </Field>
+
+          <Field label="Exact on-screen text (TOS)" hint="Use this as the on-screen text exactly. Leave empty to let AI write it. Good for campaign lines.">
+            <textarea id="cap-tos-exact" name="tos_exact" rows={2} style={st.input} value={value.tosExact || ''}
+              onChange={e => set('tosExact', e.target.value)} placeholder="e.g. Ad: Use code MOVIE10 for 10% off 🎬" />
+          </Field>
+
+          <Field label="Must appear in the on-screen text" hint="AI writes the TOS but must include these words or lines exactly. Ignored if exact text is set. One per line.">
+            <textarea id="cap-tos-must" name="tos_must_include" rows={2} style={st.input} value={value.tosMustInclude || ''}
+              onChange={e => set('tosMustInclude', e.target.value)} placeholder="e.g. Sponsored by @brand" />
           </Field>
 
           <Field label="Tag accounts" hint="Separate with spaces or commas.">
@@ -58,7 +68,7 @@ export function RegenerateBar({ postId, accountId, options, onCaption }) {
     setBusy(true); setErr('');
     try {
       const res = await api.regenerateCaption(postId, accountId, { ...options, tweak });
-      onCaption(res.generatedCaption || '');
+      onCaption(res.generatedCaption || '', res.hookText || '');
       setTweak('');
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
