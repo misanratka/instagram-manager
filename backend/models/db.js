@@ -53,6 +53,11 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_username TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_session_path TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fallback_connected_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_name TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_handle TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_verified INTEGER DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_avatar TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_theme TEXT DEFAULT 'dark'`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS posts (
       id                  TEXT PRIMARY KEY,
@@ -112,6 +117,11 @@ function initSQLite() {
       fallback_connected_at DATETIME,
       caption_style TEXT NOT NULL DEFAULT 'casual',
       caption_prompt TEXT,
+      brand_name TEXT,
+      brand_handle TEXT,
+      brand_verified INTEGER DEFAULT 0,
+      brand_avatar TEXT,
+      brand_theme TEXT DEFAULT 'dark',
       created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
       token_connected_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
