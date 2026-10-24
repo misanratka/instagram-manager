@@ -2,7 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 
 const STYLES = ['casual', 'professional', 'funny', 'motivational', 'minimal', 'educational'];
-const BLANK  = { name: '', ig_user_id: '', access_token: '', caption_style: 'casual', caption_prompt: '' };
+const BLANK  = { name: '', ig_user_id: '', access_token: '', caption_style: 'casual', caption_prompt: '',
+                 brand_name: '', brand_handle: '', brand_verified: false, brand_avatar: '', brand_theme: 'dark' };
+
+// Resize + centre-crop a chosen picture to a small square JPEG (keeps the saved data tiny)
+function fileToAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const size = 256, c = document.createElement('canvas');
+      c.width = c.height = size;
+      const side = Math.min(img.width, img.height);
+      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+    img.src = url;
+  });
+}
 const BACKEND = (import.meta.env.VITE_BACKEND_URL ?? '').replace(/\/$/, '');
 
 export default function AccountManager() {
@@ -37,7 +56,9 @@ export default function AccountManager() {
   function openAdd() { setEditId(null); setForm(BLANK); setError(''); setSuccess(''); setShowForm(true); }
   function openEdit(a) {
     setEditId(a.id);
-    setForm({ name: a.name, ig_user_id: a.ig_user_id, access_token: '', caption_style: a.caption_style, caption_prompt: a.caption_prompt || '' });
+    setForm({ name: a.name, ig_user_id: a.ig_user_id, access_token: '', caption_style: a.caption_style, caption_prompt: a.caption_prompt || '',
+      brand_name: a.brand_name || '', brand_handle: a.brand_handle || '', brand_verified: !!a.brand_verified,
+      brand_avatar: a.brand_avatar || '', brand_theme: a.brand_theme || 'dark' });
     setError(''); setSuccess(''); setShowForm(true);
   }
   function cancel() { setShowForm(false); setEditId(null); setError(''); }
@@ -124,6 +145,46 @@ export default function AccountManager() {
                 placeholder="e.g. Movie fan page. Dramatic and cinematic. Short punchy sentences. Always end with a question." />
               <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Used every time you pick this page on New Post. Leave empty to use the style above only.</div>
             </Field>
+            {editId && (
+              <div style={{ border: '1px solid #1c1c1c', borderRadius: 10, padding: 14, margin: '4px 0 18px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#ccc', marginBottom: 4 }}>Page card (branding)</div>
+                <div style={{ fontSize: 11, color: '#555', marginBottom: 14 }}>Shown on the card above your video. Leave name or handle empty to use this account's own.</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                  <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#222', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', fontSize: 22, fontWeight: 700 }}>
+                    {form.brand_avatar ? <img src={form.brand_avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (form.brand_name || form.name || '?').trim()[0]?.toUpperCase()}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <label style={{ ...s.stylePill, cursor: 'pointer' }}>
+                      Upload picture
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
+                        const f = e.target.files?.[0]; e.target.value = '';
+                        if (!f) return;
+                        try { set('brand_avatar', await fileToAvatar(f)); } catch (err) { setError(err.message); }
+                      }} />
+                    </label>
+                    {form.brand_avatar && <button type="button" onClick={() => set('brand_avatar', '')} style={s.stylePill}>Remove</button>}
+                  </div>
+                </div>
+                <Field label="Card name">
+                  <input style={s.input} value={form.brand_name} onChange={e => set('brand_name', e.target.value)} placeholder={form.name || 'Page name'} />
+                </Field>
+                <Field label="Card handle">
+                  <input style={s.input} value={form.brand_handle} onChange={e => set('brand_handle', e.target.value.replace(/^@+/, ''))} placeholder="yourpage" />
+                </Field>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#bbb', cursor: 'pointer', marginBottom: 14 }}>
+                  <input type="checkbox" checked={!!form.brand_verified} onChange={e => set('brand_verified', e.target.checked)} style={{ accentColor: '#1d9bf0', width: 16, height: 16 }} />
+                  Show verified badge (only if this page is verified)
+                </label>
+                <Field label="Card theme">
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {['dark', 'light'].map(t => (
+                      <button key={t} type="button" onClick={() => set('brand_theme', t)}
+                        style={{ ...s.stylePill, ...(form.brand_theme === t ? s.styleOn : {}) }}>{t}</button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+            )}
             <div style={s.formBtns}>
               <button type="button" onClick={cancel} style={s.cancelBtn}>Cancel</button>
               <button type="submit" disabled={loading} style={s.submitBtn}>
