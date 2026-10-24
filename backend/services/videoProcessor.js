@@ -5,6 +5,8 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('./logger');
 const { computeLayout } = require('./brandCard');
 
+const THREADS = String(process.env.FFMPEG_THREADS || '1');
+
 function getUploadDir() {
   return path.resolve(process.env.UPLOAD_DIR || './uploads');
 }
@@ -27,6 +29,45 @@ function writeSRTFile(srtContent, videoPath) {
   const srtPath = videoPath.replace(/\.[^/.]+$/, '.srt');
   fs.writeFileSync(srtPath, srtContent, 'utf8');
   return srtPath;
+}
+
+// Turns the frame editor's fractions (left/right/top/bottom of the original frame + zoom) into ffmpeg crop filters.
+function frameCrop(W, H, fr) {
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
+  const left = clamp(Number(fr.left) || 0, 0, 0.9);
+  const right = clamp(fr.right === undefined ? 1 : Number(fr.right), left + 0.05, 1);
+  const top = clamp(Number(fr.top) || 0, 0, 0.9);
+  const bottom = clamp(fr.bottom === undefined ? 1 : Number(fr.bottom), top + 0.05, 1);
+  const cw = even((right - left) * W), ch = even((bottom - top) * H);
+  let cx = Math.min(Math.round(left * W), W - cw), cy = Math.min(Math.round(top * H), H - ch);
+  cx = Math.max(0, cx - (cx % 2)); cy = Math.max(0, cy - (cy % 2));   // even offsets keep chroma aligned
+  const filters = [];
+  if (cw !== W || ch !== H) filters.push(`crop=${cw}:${ch}:${cx}:${cy}`);
+  let w = cw, h = ch;
+  const z = clamp(Number(fr.zoom) || 1, 1, 3);
+  if (z > 1.001) { w = even(cw / z); h = even(ch / z); filters.push(`crop=${w}:${h}`); }   // centred zoom
+  return { filters, w, h };
+}
+
+// Finds the real picture inside black bars (letterbox/pillarbox). Returns fractions of the frame, or null.
+async function detectContentRect(videoPath) {
+  const dims = await getVideoDimensions(videoPath);
+  const stderr = await new Promise((resolve) => {
+    execFile('ffmpeg', ['-hide_banner', '-ss', '0.3', '-t', '6', '-i', videoPath, '-vf', 'fps=3,cropdetect=limit=24:round=2:reset=0', '-an', '-f', 'null', '-'],
+      { timeout: 30000, maxBuffer: 8 * 1024 * 1024 }, (err, so, se) => resolve(String(se || '')));
+  });
+  const all = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
+  if (!all.length) return null;
+  const [w, h, x, y] = all[all.length - 1].slice(1).map(Number);
+  const W = dims.width, H = dims.height;
+  if (!w || !h || w < 0.2 * W || h < 0.08 * H || w * h < 0.06 * W * H) return null;   // implausibly small (very dark video) — ignore
+  if (w >= W * 0.98 && h >= H * 0.98) return null;                  // no bars
+  // tiny trims are noise: snap to the full frame
+  const full = (v, total) => v >= 0.97 * total;
+  const nx = full(w, W) ? 0 : x, nw = full(w, W) ? W : w;
+  const ny = full(h, H) ? 0 : y, nh = full(h, H) ? H : h;
+  return { x: nx / W, y: ny / H, w: nw / W, h: nh / H };
 }
 
 function getVideoDimensions(videoPath) {
@@ -330,7 +371,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   const outFilename = `enhanced_${uuidv4()}.mp4`;
   const outputPath = path.join(uploadDir, outFilename);
 
-  const inputArgs = ['-y', '-threads', '1'];
+  const inputArgs = ['-y', '-threads', THREADS];
   const trimStart = Number(trim?.start) || 0;
   const trimEnd   = Number(trim?.end)   || 0;
   if (trimStart > 0) inputArgs.push('-ss', trimStart.toFixed(3));
@@ -344,7 +385,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   const aFilters = [];
 
   // 1. Crop first (changes dimensions)
-  const cropFilter = await computeCropFilter(inputPath, cropRatio);
+  const cropFilter = brand?.frame ? null : await computeCropFilter(inputPath, cropRatio);
   if (cropFilter) vFilters.push(cropFilter);
 
   // Brand layout: where the card and the (scaled) video sit on a 1080x1920 canvas
@@ -352,9 +393,14 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   if (brand?.cardPath) {
     const dims = await getVideoDimensions(inputPath);
     let sw = dims.width, sh = dims.height;
-    const m = cropFilter && cropFilter.match(/^crop=(\d+):(\d+)/);
-    if (m) { sw = Number(m[1]); sh = Number(m[2]); }
-    layout = computeLayout({ cardH: brand.cardH, srcW: sw, srcH: sh });
+    if (brand.frame) {
+      const f = frameCrop(dims.width, dims.height, brand.frame);   // user's TOP/BOTTOM crop + zoom (+ auto bar trim)
+      vFilters.push(...f.filters); sw = f.w; sh = f.h;
+    } else {
+      const m = cropFilter && cropFilter.match(/^crop=(\d+):(\d+)/);
+      if (m) { sw = Number(m[1]); sh = Number(m[2]); }
+    }
+    layout = computeLayout({ cardH: brand.cardH, srcW: sw, srcH: sh, offsetY: brand.frame?.offsetY });
   }
 
   // 2. Speed
@@ -471,13 +517,13 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   // 7. Brand layout: scale video, place it on the canvas, overlay the card
   if (layout) {
     vFilters.push(
-      `scale=${layout.vidW}:${layout.vidH}:flags=lanczos+accurate_rnd`,
+      `scale=${layout.vidW}:${layout.vidH}:flags=bicubic`,
       'setsar=1',
-      `pad=${layout.canvasW}:${layout.canvasH}:${layout.vidX}:${layout.vidY}:color=black`
+      `pad=${layout.canvasW}:${layout.canvasH}:${layout.vidX}:${layout.vidY}:color=${String(brand.canvasColor || '#000000').replace('#', '0x')}`
     );
   }
 
-  const crf = preset?.crf || (enhance || layout ? '18' : '23');
+  const crf = preset?.crf || (layout ? '19' : enhance ? '18' : '23');
   const args = [...inputArgs];
   if (layout) {
     args.push(
@@ -496,9 +542,9 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // Quality encode (High profile, 48kHz audio) - still single-thread for Render free tier
   args.push('-c:v', 'libx264');
-  args.push('-preset', 'veryfast');
+  args.push('-preset', layout ? 'superfast' : 'veryfast');
   args.push('-crf', crf);
-  args.push('-threads', '1');
+  args.push('-threads', THREADS);
   args.push('-profile:v', 'high', '-level:v', '4.1');
   args.push('-pix_fmt', 'yuv420p');
   args.push('-maxrate', '12M', '-bufsize', '24M');
@@ -535,4 +581,4 @@ function getVideoDuration(videoPath) {
   });
 }
 
-module.exports = { enhanceVideo, extractAudio, getVideoDuration };
+module.exports = { enhanceVideo, extractAudio, getVideoDuration, detectContentRect };
