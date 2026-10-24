@@ -49,7 +49,7 @@ router.get('/', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'];
     const accounts = await getDB().all(
-      `SELECT id, name, username, ig_user_id, access_token, token_scopes, fallback_username, fallback_session_path, fallback_connected_at, caption_style, caption_prompt, created_at, token_connected_at,
+      `SELECT id, name, username, ig_user_id, access_token, token_scopes, fallback_username, fallback_session_path, fallback_connected_at, caption_style, caption_prompt, brand_name, brand_handle, brand_verified, brand_avatar, brand_theme, created_at, token_connected_at,
               CASE WHEN access_token IS NOT NULL AND access_token <> '' THEN 1 ELSE 0 END as has_token
        FROM accounts WHERE user_id=$1 ORDER BY created_at DESC`,
       [userId]
@@ -139,6 +139,29 @@ router.put('/:id', async (req, res, next) => {
       `UPDATE accounts SET name=COALESCE($1,name), caption_style=COALESCE($2,caption_style) WHERE id=$3`,
       [name || null, caption_style || null, req.params.id]
     );
+    // Page branding (card layout): each field optional; undefined = leave as is, empty = clear
+    const b = req.body;
+    const sets = [], vals = [];
+    const add = (col, v) => { vals.push(v); sets.push(`${col}=$${vals.length}`); };
+    if (b.brand_name !== undefined)   add('brand_name', String(b.brand_name || '').trim().slice(0, 60) || null);
+    if (b.brand_handle !== undefined) {
+      const h = String(b.brand_handle || '').trim().replace(/^@+/, '');
+      if (h && !/^[A-Za-z0-9._]{1,40}$/.test(h)) return res.status(400).json({ error: 'Handle can only use letters, numbers, dots and underscores.' });
+      add('brand_handle', h || null);
+    }
+    if (b.brand_verified !== undefined) add('brand_verified', b.brand_verified === true || b.brand_verified === 1 || b.brand_verified === 'true' ? 1 : 0);
+    if (b.brand_theme !== undefined)    add('brand_theme', b.brand_theme === 'light' ? 'light' : 'dark');
+    if (b.brand_avatar !== undefined) {
+      const av = String(b.brand_avatar || '');
+      if (av && (!/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(av) || av.length > 140000))
+        return res.status(400).json({ error: 'Profile picture must be a small PNG/JPG/WebP image.' });
+      add('brand_avatar', av || null);
+    }
+    if (sets.length) {
+      vals.push(req.params.id);
+      await db.run(`UPDATE accounts SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
+    }
+
     // Saved writing style: undefined = leave as is, empty string = clear it
     if (caption_prompt !== undefined) {
       await db.run('UPDATE accounts SET caption_prompt=$1 WHERE id=$2', [String(caption_prompt || '').trim() || null, req.params.id]);
