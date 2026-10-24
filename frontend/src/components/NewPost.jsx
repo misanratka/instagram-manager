@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api, mediaUrl } from '../services/api';
 import TextOverlayEditor from './TextOverlayEditor';
 import CaptionOptions, { RegenerateBar } from './CaptionOptions';
+import FrameEditor from './FrameEditor';
 
 const STEPS = { INPUT: 'input', PROCESSING: 'processing', REVIEW: 'review' };
 
@@ -36,6 +37,8 @@ function getBoxTextColor(box) {
 }
 
 // Main component ────────────────────────────────────────────────────────────
+const FULL_FRAME = { top: 0, bottom: 1, left: 0, right: 1, zoom: 1, offsetY: 0, cardScale: 1 };
+
 export default function NewPost() {
   const [accounts, setAccounts]         = useState([]);
   const [accountId, setAccountId]       = useState('');
@@ -71,6 +74,11 @@ export default function NewPost() {
   const [captionBusy, setCaptionBusy]     = useState(false);
   const [useCard, setUseCard]             = useState(true);
   const [cardImg, setCardImg]             = useState('');
+  const [cardH, setCardH]               = useState(0);
+  const [canvasColor, setCanvasColor]     = useState('#000000');
+  const [frame, setFrame]                 = useState(FULL_FRAME);
+  const [autoFrame, setAutoFrame]         = useState(null);
+  const [showAdv, setShowAdv]             = useState(false);
   const fileRef = useRef();
   const PUBLISH_STATUS_POLL_MS = 3000;
   const PUBLISH_STATUS_TIMEOUT_MS = 90000;
@@ -293,14 +301,25 @@ export default function NewPost() {
   const previewUrl   = mediaUrl(enhancedUrl || result?.videoUrl);
   // Card layout: page card on top, video below. Needs a page selected; text comes from the on-screen text box.
   const cardOn   = useCard && !!accountId && !!onScreenText.trim();
-  const cardOpts = () => (cardOn ? { account_id: accountId, brandCard: { enabled: true, text: onScreenText } } : {});
+  const frameMode = useCard && !!accountId;   // show the frame editor (crop + live preview)
+  const srcUrl    = mediaUrl(result?.videoUrl);
+  const cardOpts = () => (cardOn ? { account_id: accountId, brandCard: { enabled: true, text: onScreenText, frame } } : {});
   useEffect(() => {
-    if (!cardOn || !result) { setCardImg(''); return; }
+    if (!frameMode || !result) { setCardImg(''); return; }
     const t = setTimeout(() => {
-      api.cardPreview(accountId, onScreenText).then(r => setCardImg(r.image)).catch(() => setCardImg(''));
-    }, 500);
+      api.cardPreview(accountId, onScreenText, frame.cardScale)
+        .then(r => { setCardImg(r.image); setCardH(r.height); setCanvasColor(r.canvasColor || '#000000'); })
+        .catch(() => setCardImg(''));
+    }, 400);
     return () => clearTimeout(t);
-  }, [cardOn, accountId, onScreenText, result?.postId]);
+  }, [frameMode, accountId, onScreenText, frame.cardScale, result?.postId]);
+
+  // New video (or newly uploaded file) → start from the auto-detected crop (black bars removed)
+  useEffect(() => {
+    const a = result?.autoCrop;
+    const f = a ? { ...FULL_FRAME, top: a.y, bottom: a.y + a.h, left: a.x, right: a.x + a.w } : { ...FULL_FRAME };
+    setFrame(f); setAutoFrame(a ? f : null);
+  }, [result?.postId, JSON.stringify(result?.autoCrop || null)]);
   const isIgCaption  = !!(result?.instagramUrl && !result?.videoUrl);
 
   if (popup) {
@@ -362,8 +381,7 @@ export default function NewPost() {
           </label>
           {!accountId && <div style={{ fontSize: 11, color: '#555', marginTop: 5 }}>Pick a page below to use the card layout.</div>}
           {useCard && !!accountId && !onScreenText.trim() && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 5 }}>Add on-screen text above to use the card.</div>}
-          {cardOn && cardImg && <img src={cardImg} alt="Card preview" style={{ width: '100%', maxWidth: 480, marginTop: 12, borderRadius: 12, display: 'block' }} />}
-          {cardOn && <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Rendered into a 1080×1920 video when you post. Set the picture, name and badge in Accounts.</div>}
+          {cardOn && <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Rendered into a 1080×1920 video when you post. Set the picture, name and badge in Accounts. Adjust framing below.</div>}
         </div>
 
         {isIgCaption && (
@@ -379,9 +397,9 @@ export default function NewPost() {
                   Why the video couldn't be downloaded: {String(result.downloadError).slice(0, 900)}
                 </div>
               )}
-              <IgVideoUpload postId={result.postId} onUploaded={async url => {
+              <IgVideoUpload postId={result.postId} onUploaded={async (url, autoCrop) => {
                 const skipped = result?.captionSkipped;
-                setResult(r => ({ ...r, videoUrl: url, instagramUrl: null, captionSkipped: false }));
+                setResult(r => ({ ...r, videoUrl: url, instagramUrl: null, captionSkipped: false, autoCrop: autoCrop || null }));
                 if (!skipped) return;
                 setCaptionBusy(true);
                 try {
@@ -397,6 +415,17 @@ export default function NewPost() {
 
         {!isIgCaption && (
           <>
+            {frameMode ? (
+              <Section label="Frame">
+                {badPreview && badPreview === srcUrl && (
+                  <div style={{ ...s.errorBox, marginBottom: 10 }}>
+                    Preview couldn't load. The file may be missing on the server (it restarted) or in a format this browser can't play. Try uploading the video again.
+                  </div>
+                )}
+                <FrameEditor src={srcUrl} frame={frame} onChange={setFrame} autoFrame={autoFrame}
+                  cardImg={cardImg} cardH={cardH} canvasColor={canvasColor} onVideoError={() => setBadPreview(srcUrl)} />
+              </Section>
+            ) : (
             <Section label="Video">
               {badPreview && badPreview === previewUrl && (
                 <div style={{ ...s.errorBox, marginBottom: 10 }}>
@@ -461,8 +490,13 @@ export default function NewPost() {
               </button>
               {enhancedUrl && <div style={s.badge}>✓ Rendered</div>}
             </Section>
+            )}
 
-
+            <button type="button" onClick={() => setShowAdv(v => !v)}
+              style={{ width: '100%', padding: '10px 14px', marginBottom: 14, background: 'transparent', border: '1px dashed #2a2a2a', borderRadius: 10, color: '#666', fontSize: 12, cursor: 'pointer' }}>
+              {showAdv ? '▲ Hide extra tools' : '▼ Extra tools (trim, subtitles, text on video)'}
+            </button>
+            {showAdv && (<>
             <Section label="Adjustments">
               <div style={s.editGrid}>
                 <div>
@@ -529,6 +563,7 @@ export default function NewPost() {
               </div>
             </Section>
 
+            </>)}
             {/* Render button removed — boost quality now auto-renders when toggled */}
           </>
         )}
@@ -650,7 +685,7 @@ function IgVideoUpload({ postId, onUploaded }) {
     setErr(''); setUploading(true);
     try {
       const data = await api.attachVideo(postId, file);
-      onUploaded(data.videoUrl);
+      onUploaded(data.videoUrl, data.autoCrop);
     } catch (e) {
       setErr(e.message);
     } finally {
