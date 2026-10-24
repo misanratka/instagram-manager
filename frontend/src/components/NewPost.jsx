@@ -69,6 +69,8 @@ export default function NewPost() {
   const [capOpts, setCapOpts]             = useState({});
   const [badPreview, setBadPreview]       = useState('');
   const [captionBusy, setCaptionBusy]     = useState(false);
+  const [useCard, setUseCard]             = useState(true);
+  const [cardImg, setCardImg]             = useState('');
   const fileRef = useRef();
   const PUBLISH_STATUS_POLL_MS = 3000;
   const PUBLISH_STATUS_TIMEOUT_MS = 90000;
@@ -140,8 +142,9 @@ export default function NewPost() {
         adjustments:  { brightness, contrast, saturation },
         subtitleStyle,
         segments,
+        ...cardOpts(),
       });
-      setEnhancedUrl(shouldEnhance ? res.enhancedVideoUrl : null);
+      setEnhancedUrl(shouldEnhance || cardOn ? res.enhancedVideoUrl : null);
     } catch (err) {
       setError(err.message || 'Boost failed');
       setEnhance(false);
@@ -156,7 +159,7 @@ export default function NewPost() {
     const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
     const hasSpeed = speed !== 1;
     const hasCrop  = cropRatio !== 'none';
-    if (!burnSubs && !enhance && !hasText && !hasTrim && !hasAdj && !hasSpeed && !hasCrop)
+    if (!burnSubs && !enhance && !hasText && !hasTrim && !hasAdj && !hasSpeed && !hasCrop && !cardOn)
       return setError('Make at least one edit or enable an enhancement');
     setError(''); setEnhancing(true);
     try {
@@ -170,7 +173,8 @@ export default function NewPost() {
         trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
         adjustments:   { brightness, contrast, saturation },
         speed,
-        cropRatio
+        cropRatio,
+        ...cardOpts()
       });
       setEnhancedUrl(res.enhancedVideoUrl);
     } catch (err) {
@@ -188,7 +192,7 @@ export default function NewPost() {
       const realText = textBoxes.filter(b => b.text && b.text.trim() && b.text !== 'Tap to type');
       const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
       const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
-      const needsRender = realText.length > 0 || hasTrim || hasAdj || burnSubs || enhance;
+      const needsRender = realText.length > 0 || hasTrim || hasAdj || burnSubs || enhance || cardOn;
       if (needsRender) {
         setSuccess('Processing video…');
         try {
@@ -198,6 +202,7 @@ export default function NewPost() {
             trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
             adjustments:   { brightness, contrast, saturation },
             subtitleStyle, segments,
+            ...cardOpts(),
           });
           setEnhancedUrl(res.enhancedVideoUrl);
         } catch (renderErr) {
@@ -248,7 +253,7 @@ export default function NewPost() {
       const realText = textBoxes.filter(b => b.text && b.text.trim() && b.text !== 'Tap to type');
       const hasTrim  = Number(trimStart) > 0 || Number(trimEnd) > 0;
       const hasAdj   = brightness !== 0 || contrast !== 1 || saturation !== 1;
-      const needsRender = realText.length > 0 || hasTrim || hasAdj || burnSubs || enhance;
+      const needsRender = realText.length > 0 || hasTrim || hasAdj || burnSubs || enhance || cardOn;
       if (needsRender) {
         setSuccess('Processing video…');
         try {
@@ -258,6 +263,7 @@ export default function NewPost() {
             trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
             adjustments:   { brightness, contrast, saturation },
             subtitleStyle, segments,
+            ...cardOpts(),
           });
           setEnhancedUrl(res.enhancedVideoUrl);
         } catch (renderErr) {
@@ -285,6 +291,16 @@ export default function NewPost() {
 
   const minTime      = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
   const previewUrl   = mediaUrl(enhancedUrl || result?.videoUrl);
+  // Card layout: page card on top, video below. Needs a page selected; text comes from the on-screen text box.
+  const cardOn   = useCard && !!accountId && !!onScreenText.trim();
+  const cardOpts = () => (cardOn ? { account_id: accountId, brandCard: { enabled: true, text: onScreenText } } : {});
+  useEffect(() => {
+    if (!cardOn || !result) { setCardImg(''); return; }
+    const t = setTimeout(() => {
+      api.cardPreview(accountId, onScreenText).then(r => setCardImg(r.image)).catch(() => setCardImg(''));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [cardOn, accountId, onScreenText, result?.postId]);
   const isIgCaption  = !!(result?.instagramUrl && !result?.videoUrl);
 
   if (popup) {
@@ -328,7 +344,7 @@ export default function NewPost() {
 
         <div style={s.onScreenBox}>
           <div style={s.onScreenHeader}>
-            <span style={s.onScreenLabel}>ON-SCREEN TEXT (for CapCut / Premiere)</span>
+            <span style={s.onScreenLabel}>ON-SCREEN TEXT</span>
             <button onClick={() => navigator.clipboard.writeText(onScreenText)} style={s.copyBtn}>Copy</button>
           </div>
           <textarea
@@ -340,6 +356,14 @@ export default function NewPost() {
             placeholder="Add on-screen text…"
             style={{ ...s.textarea, fontSize: 16, fontWeight: 600, lineHeight: 1.5, background: 'transparent', border: '1px solid #2a2a4a', color: '#fff', resize: 'vertical' }}
           />
+          <label htmlFor="use-card" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: accountId ? '#bbb' : '#555', cursor: accountId ? 'pointer' : 'default' }}>
+            <input id="use-card" name="use_card" type="checkbox" checked={useCard && !!accountId} disabled={!accountId} onChange={e => setUseCard(e.target.checked)} style={{ accentColor: '#833ab4', width: 16, height: 16 }} />
+            Page card layout: put this text in a branded card above the video
+          </label>
+          {!accountId && <div style={{ fontSize: 11, color: '#555', marginTop: 5 }}>Pick a page below to use the card layout.</div>}
+          {useCard && !!accountId && !onScreenText.trim() && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 5 }}>Add on-screen text above to use the card.</div>}
+          {cardOn && cardImg && <img src={cardImg} alt="Card preview" style={{ width: '100%', maxWidth: 480, marginTop: 12, borderRadius: 12, display: 'block' }} />}
+          {cardOn && <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Rendered into a 1080×1920 video when you post. Set the picture, name and badge in Accounts.</div>}
         </div>
 
         {isIgCaption && (
@@ -352,7 +376,7 @@ export default function NewPost() {
               </div>
               {result?.downloadError && (
                 <div style={{ fontSize: 12, color: '#f0a060', marginBottom: 10, whiteSpace: 'pre-line', lineHeight: 1.5 }}>
-                  Why the video couldn't be downloaded: {String(result.downloadError).slice(0, 400)}
+                  Why the video couldn't be downloaded: {String(result.downloadError).slice(0, 900)}
                 </div>
               )}
               <IgVideoUpload postId={result.postId} onUploaded={async url => {
@@ -512,7 +536,7 @@ export default function NewPost() {
         <Section label="Caption">
           <textarea id="caption" name="caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} disabled={captionBusy} placeholder={captionBusy ? 'Writing caption from your video…' : 'Edit your caption…'} />
           <div style={s.charCount}>{caption.length} / 2200</div>
-          <RegenerateBar postId={result.postId} accountId={accountId} options={capOpts} onCaption={setCaption} />
+          <RegenerateBar postId={result.postId} accountId={accountId} options={capOpts} onCaption={(c, h) => { setCaption(c); if (h && (capOpts.tosExact || capOpts.tosMustInclude)) setOnScreenText(h); }} />
         </Section>
 
         <Section label="Post to Instagram Account">
