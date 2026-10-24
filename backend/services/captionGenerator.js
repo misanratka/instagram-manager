@@ -90,6 +90,7 @@ const PROMPT_MENTIONS = `MENTIONS / TAGGING RULES:
 const PROMPT_OPTIONS = `POST-SPECIFIC OPTIONS:
 • If the user message contains POST-SPECIFIC INSTRUCTIONS, MUST-INCLUDE TEXT or REQUIRED MENTIONS, follow them for this post.
 • MUST-INCLUDE TEXT goes inside paragraphs 1–3 exactly as written, character for character. Never alter it and never put it in the TOS line.
+• TOS MUST-INCLUDE text goes inside the TOS line (the first block) exactly as written. If FIXED ON-SCREEN TEXT is given, output it unchanged as the first block and write the caption to fit it.
 • Instructions can change focus, tone, emphasis and details, but never override the rules against inventing facts, quoting copyrighted text or guessing handles. Keep the block structure unless the instructions explicitly ask for a different length or format.
 • The ACCOUNT STYLE (if given in "Caption style") controls voice, tone and wording. The block structure stays the same.`;
 
@@ -155,7 +156,9 @@ function sanitizeOptions(raw = {}) {
     mentions: mentions.slice(0, 10),
     hashtags: hashtags.slice(0, 15).map(t => `#${t}`),
     aiHashtags: toBool(raw.aiHashtags, false),
-    creditLine: toBool(raw.creditLine, true)
+    creditLine: toBool(raw.creditLine, true),
+    tosExact: String(raw.tosExact || '').trim().slice(0, 280),
+    tosMustInclude: toList(raw.tosMustInclude, /\n+/).map(t => t.slice(0, 120)).slice(0, 3)
   };
 }
 
@@ -165,6 +168,8 @@ function buildOptionsBlock(o) {
   if (o.mustInclude.length) {
     out.push(`MUST-INCLUDE TEXT (put each one inside the caption body word-for-word, exactly as written — no paraphrasing, no changes to casing or punctuation):\n${o.mustInclude.map((t, i) => `${i + 1}. ${t}`).join('\n')}`);
   }
+  if (o.tosExact) out.push(`FIXED ON-SCREEN TEXT (the page owner already decided the TOS line; output it unchanged as the first block, and write the caption to fit it):\n${o.tosExact}`);
+  else if (o.tosMustInclude.length) out.push(`TOS MUST-INCLUDE (the TOS line must contain each of these exactly as written):\n${o.tosMustInclude.map((t, i) => `${i + 1}. ${t}`).join('\n')}`);
   if (o.mentions.length) out.push(`REQUIRED MENTIONS (tag every one, written exactly as shown):\n${o.mentions.map(h => `@${h}`).join(' ')}`);
   return out.join('\n\n');
 }
@@ -273,9 +278,20 @@ function parseResponse(raw, allowed, o) {
   try {
     const required = new Set(o.mentions.map(h => h.toLowerCase()));
     const blocks = raw.trim().split(/\n\s*\n/);
-    const onScreenText = stripUnverifiedMentions(
-      (blocks[0] || '').replace(/^\s*(TOS|TEXT[- ]ON[- ]SCREEN)\s*[:\-]\s*/i, '').replace(/#[\p{L}\p{N}_]+/gu, '').trim(),
-      allowed, required);
+    // Protect must-include TOS phrases from the cleanup steps, then restore them exactly
+    const tmasks = o.tosMustInclude.map((phrase, i) => ({
+      phrase, token: `⟦T${i}⟧`, re: new RegExp(escapeRe(phrase).replace(/\s+/g, '\\s+'), 'i')
+    }));
+    let tos = (blocks[0] || '').replace(/^\s*(TOS|TEXT[- ]ON[- ]SCREEN)\s*[:\-]\s*/i, '');
+    for (const m of tmasks) tos = tos.replace(m.re, m.token);
+    tos = stripUnverifiedMentions(tos.replace(/#[\p{L}\p{N}_]+/gu, '').trim(), allowed, required);
+    const tosMissing = [];
+    for (const m of tmasks) {
+      if (tos.includes(m.token)) tos = tos.split(m.token).join(m.phrase);
+      else tosMissing.push(m.phrase);
+    }
+    let onScreenText = [tos, ...tosMissing].filter(Boolean).join(' ').trim();
+    if (o.tosExact) onScreenText = o.tosExact;
     const body = blocks.slice(1).join('\n\n').trim();
     return { onScreenText, caption: normalizeCaption(body || raw.trim(), allowed, o) };
   } catch {
@@ -353,8 +369,15 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
   return parseResponse(completion.choices[0].message.content, allowed, o);
 }
 
-async function generateContent({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt, options }) {
-  const o = sanitizeOptions(options);
+async function generateContent(args) {
+  const o = sanitizeOptions(args.options);
+  const res = await generateContentInner(args, o);
+  if (o.tosExact) res.onScreenText = o.tosExact;
+  else if (o.tosMustInclude.length && !res.onScreenText) res.onScreenText = o.tosMustInclude.join(' ');
+  return res;
+}
+
+async function generateContentInner({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt }, o) {
 
   // No API keys at all
   if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
