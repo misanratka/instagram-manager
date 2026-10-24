@@ -47,6 +47,8 @@ function toApiOptions(o = {}) {
   if (o.aiHashtags)           out.ai_hashtags = true;
   if (typeof o.creditLine === 'boolean') out.credit_line = o.creditLine;
   if (o.tweak?.trim())        out.tweak = o.tweak.trim();
+  if (o.tosExact?.trim())       out.tos_exact = o.tosExact.trim();
+  if (o.tosMustInclude?.trim()) out.tos_must_include = o.tosMustInclude.trim();
   return out;
 }
 
@@ -75,6 +77,7 @@ export const api = {
     return request('POST', `/content/attach-video/${postId}`, fd, true);
   },
   enhanceVideo:  (postId, opts) => request('POST', `/content/enhance/${postId}`, opts),
+  cardPreview:   (account_id, text) => request('POST', '/content/card-preview', { account_id, text }),
   // Posts
   getPosts: (params = {}) => {
     const q = new URLSearchParams(params).toString();
