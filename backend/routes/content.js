@@ -1,12 +1,14 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
 const { downloadVideo, getVideoMetadata } = require('../services/downloader');
 const { transcribeVideo, segmentsToSRT } = require('../services/transcription');
 const { generateContent, generateSubtitleLines } = require('../services/captionGenerator');
 const { enhanceVideo } = require('../services/videoProcessor');
+const { renderCard } = require('../services/brandCard');
 const logger = require('../services/logger');
 
 const router = express.Router();
@@ -20,6 +22,8 @@ function readCaptionOptions(body = {}, isRepost = false) {
     mustInclude:  body.must_include ?? body.mustInclude,
     mentions:     body.mentions,
     hashtags:     body.hashtags,
+    tosExact:       body.tos_exact ?? body.tosExact,
+    tosMustInclude: body.tos_must_include ?? body.tosMustInclude,
     aiHashtags:   body.ai_hashtags ?? body.aiHashtags,
     // Credit line defaults ON for reposted links, OFF for your own uploaded clips
     creditLine:   (credit === undefined || credit === '') ? isRepost : credit
@@ -153,9 +157,50 @@ router.post('/process-file', upload.single('video'), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Renders the page card to a temp PNG. Returns { brand } or { error, status }.
+async function buildBrandCard(req, accountId, text, dir) {
+  const account = accountId ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId]) : null;
+  if (!account) return { status: 400, error: 'Pick a page first to use the card layout.' };
+  const userId = req.headers['x-user-id'];
+  if (userId && account.user_id && account.user_id !== userId) return { status: 403, error: 'Not your page.' };
+  const t = String(text || '').trim();
+  if (!t) return { status: 400, error: 'Add on-screen text first — it goes inside the card.' };
+  const card = await renderCard({
+    name: account.brand_name || account.name,
+    handle: account.brand_handle || account.username,
+    verified: !!account.brand_verified,
+    avatar: account.brand_avatar,
+    text: t,
+    theme: account.brand_theme || 'dark'
+  });
+  const cardPath = path.join(dir, `card_${uuidv4()}.png`);
+  fs.writeFileSync(cardPath, card.buffer);
+  return { brand: { cardPath, cardH: card.height }, card };
+}
+
+// Live preview of the card (PNG as a data URL) for the review screen
+router.post('/card-preview', async (req, res, next) => {
+  try {
+    const { account_id, text } = req.body || {};
+    const account = account_id ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [account_id]) : null;
+    if (!account) return res.status(400).json({ error: 'Pick a page first.' });
+    const userId = req.headers['x-user-id'];
+    if (userId && account.user_id && account.user_id !== userId) return res.status(403).json({ error: 'Not your page.' });
+    const card = await renderCard({
+      name: account.brand_name || account.name,
+      handle: account.brand_handle || account.username,
+      verified: !!account.brand_verified,
+      avatar: account.brand_avatar,
+      text: String(text || '').trim() || 'Your on-screen text appears here',
+      theme: account.brand_theme || 'dark'
+    });
+    res.json({ image: `data:image/png;base64,${card.buffer.toString('base64')}`, width: card.width, height: card.height });
+  } catch (err) { next(err); }
+});
+
 router.post('/enhance/:postId', async (req, res, next) => {
   try {
-    const { burnSubtitles = false, enhance = false, textOverlays = [], trim, adjustments, speed, cropRatio, subtitleStyle = 'standard', segments } = req.body;
+    const { burnSubtitles = false, enhance = false, textOverlays = [], trim, adjustments, speed, cropRatio, subtitleStyle = 'standard', segments, brandCard, account_id } = req.body;
     const post = await getDB().get('SELECT * FROM posts WHERE id=$1', [req.params.postId]);
     if (!post) return res.status(404).json({ error: 'Post not found' });
 
@@ -167,10 +212,24 @@ router.post('/enhance/:postId', async (req, res, next) => {
     const hasTrim = trim?.end > 0 || trim?.start > 0;
     const hasAdj  = adjustments && (adjustments.brightness !== 0 || adjustments.contrast !== 1 || adjustments.saturation !== 1);
     const hasSpeed = speed && speed !== 1;
-    if (!burnSubtitles && !enhance && textOverlays.length === 0 && !hasTrim && !hasAdj && !hasSpeed)
+    const wantsCard = !!brandCard?.enabled;
+    if (!burnSubtitles && !enhance && textOverlays.length === 0 && !hasTrim && !hasAdj && !hasSpeed && !wantsCard)
       return res.status(400).json({ error: 'Select at least one editing or enhancement option' });
 
-    const result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio });
+    // Page card layout (card on top, video below). Name/handle fall back to the connected account's own.
+    let brand = null;
+    if (wantsCard) {
+      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath));
+      if (built.error) return res.status(built.status).json({ error: built.error });
+      brand = built.brand;
+    }
+
+    let result;
+    try {
+      result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
+    } finally {
+      if (brand?.cardPath && fs.existsSync(brand.cardPath)) fs.unlinkSync(brand.cardPath);
+    }
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
     res.json({ enhancedVideoUrl: result.url, message: 'Video enhanced successfully' });
   } catch (err) { next(err); }
