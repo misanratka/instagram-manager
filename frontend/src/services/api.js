@@ -77,7 +77,7 @@ export const api = {
     return request('POST', `/content/attach-video/${postId}`, fd, true);
   },
   enhanceVideo:  (postId, opts) => request('POST', `/content/enhance/${postId}`, opts),
-  cardPreview:   (account_id, text) => request('POST', '/content/card-preview', { account_id, text }),
+  cardPreview:   (account_id, text, scale) => request('POST', '/content/card-preview', { account_id, text, scale }),
   // Posts
   getPosts: (params = {}) => {
     const q = new URLSearchParams(params).toString();
