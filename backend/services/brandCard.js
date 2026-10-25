@@ -131,6 +131,7 @@ async function renderCard(o) {
   setupFonts();
   const { createCanvas, loadImage } = lib();
   const th = THEMES[o.theme] || THEMES.dark;
+  const plain = !!o.plain;            // text only: no avatar / name / handle
   const k = Math.min(1.5, Math.max(0.8, Number(o.scale) || 1));
   const AV = Math.round(112 * k), GAP = Math.round(22 * k);
   const NAME_PX = Math.round(38 * k), HANDLE_PX = Math.round(29 * k), TEXT_PX = Math.round(46 * k), LINE_H = Math.round(58 * k);
@@ -143,12 +144,16 @@ async function renderCard(o) {
     lines = lines.slice(0, MAX_LINES);
     lines[MAX_LINES - 1] = lines[MAX_LINES - 1].replace(/\s*\S{0,3}$/, '') + '…';
   }
-  const textTop = AV + Math.round(26 * k);
+  if (plain && !(o.text || '').trim()) {   // nothing to show: tiny transparent image, zero height
+    return { buffer: createCanvas(CARD_W, 2).toBuffer('image/png'), width: CARD_W, height: 0, canvasColor: th.canvas };
+  }
+  const textTop = plain ? 0 : AV + Math.round(26 * k);
   const height = textTop + lines.length * LINE_H + 6;
 
   const canvas = createCanvas(CARD_W, height);
   const ctx = canvas.getContext('2d');
 
+  if (!plain) {
   // avatar
   ctx.save();
   ctx.beginPath(); ctx.arc(AV / 2, AV / 2, AV / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
@@ -191,6 +196,7 @@ async function renderCard(o) {
   ctx.font = fontStack(HANDLE_PX, false);
   ctx.fillStyle = th.handle;
   ctx.fillText(`@${String(o.handle || '').replace(/^@+/, '')}`, tx, nameBase + Math.round(HANDLE_PX * 1.35));
+  }
 
   // text
   ctx.font = fontStack(TEXT_PX, false);
@@ -206,7 +212,7 @@ async function renderCard(o) {
  * offsetY (px, + = lower) moves the whole group.
  */
 function computeLayout({ cardH, srcW, srcH, offsetY = 0 }) {
-  const SAFE_TOP = 110, SAFE_BOTTOM = 170, GAP = 24;
+  const SAFE_TOP = 110, SAFE_BOTTOM = 170, GAP = cardH > 0 ? 24 : 0;
   const availH = CANVAS_H - SAFE_TOP - SAFE_BOTTOM - cardH - GAP;
   const s = Math.min(CONTENT_W / srcW, availH / srcH);
   const even = (n) => Math.max(2, Math.round(n / 2) * 2);
