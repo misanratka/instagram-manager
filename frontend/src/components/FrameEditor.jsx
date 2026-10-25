@@ -2,10 +2,11 @@ import React, { useRef, useState } from 'react';
 
 // Same numbers as backend/services/brandCard.js → computeLayout(). Keep them in sync.
 const CANVAS_W = 1080, CANVAS_H = 1920, MARGIN = 64, CONTENT_W = CANVAS_W - MARGIN * 2;
-const SAFE_TOP = 110, SAFE_BOTTOM = 170, GAP = 24;
+const SAFE_TOP = 110, SAFE_BOTTOM = 170;
 const PREVIEW_W = 280;
 
 function computeLayout(cardH, srcW, srcH, offsetY) {
+  const GAP = cardH > 0 ? 24 : 0;
   const availH = CANVAS_H - SAFE_TOP - SAFE_BOTTOM - cardH - GAP;
   const s = Math.min(CONTENT_W / srcW, availH / srcH);
   const vidW = srcW * s, vidH = srcH * s;
@@ -58,7 +59,7 @@ export default function FrameEditor({ src, frame, onChange, autoFrame, cardImg, 
 
   // ── live preview of the final 1080x1920 layout ─────────────────────────────
   let preview = null;
-  if (nat.w && nat.h && cardH) {
+  if (nat.w && nat.h && cardH !== null && cardH !== undefined) {
     const W = nat.w, H = nat.h;
     const x0 = frame.left * W, y0 = frame.top * H;
     const w0 = (frame.right - frame.left) * W, h0 = (frame.bottom - frame.top) * H;
