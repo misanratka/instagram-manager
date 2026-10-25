@@ -72,9 +72,10 @@ export default function NewPost() {
   const [capOpts, setCapOpts]             = useState({});
   const [badPreview, setBadPreview]       = useState('');
   const [captionBusy, setCaptionBusy]     = useState(false);
-  const [useCard, setUseCard]             = useState(true);
+  const [layout, setLayoutState]         = useState(() => { try { return localStorage.getItem('im_layout') === 'text' ? 'text' : 'card'; } catch { return 'card'; } });
+  const setLayout = (v) => { setLayoutState(v); try { localStorage.setItem('im_layout', v); } catch { /* ignore */ } };
   const [cardImg, setCardImg]             = useState('');
-  const [cardH, setCardH]               = useState(0);
+  const [cardH, setCardH]               = useState(null);
   const [canvasColor, setCanvasColor]     = useState('#000000');
   const [frame, setFrame]                 = useState(FULL_FRAME);
   const [autoFrame, setAutoFrame]         = useState(null);
@@ -300,19 +301,20 @@ export default function NewPost() {
   const minTime      = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
   const previewUrl   = mediaUrl(enhancedUrl || result?.videoUrl);
   // Card layout: page card on top, video below. Needs a page selected; text comes from the on-screen text box.
-  const cardOn   = useCard && !!accountId && !!onScreenText.trim();
-  const frameMode = useCard && !!accountId;   // show the frame editor (crop + live preview)
+  // Layout choice: 'card' = page branding + text, 'text' = same layout with just the text line (no branding)
+  const frameMode = layout === 'text' || !!accountId;                          // show the frame editor (crop + live preview)
+  const cardOn    = frameMode && (layout === 'text' || !!onScreenText.trim());   // render the 1080x1920 layout when posting
   const srcUrl    = mediaUrl(result?.videoUrl);
-  const cardOpts = () => (cardOn ? { account_id: accountId, brandCard: { enabled: true, text: onScreenText, frame } } : {});
+  const cardOpts = () => (cardOn ? { ...(accountId ? { account_id: accountId } : {}), brandCard: { enabled: true, mode: layout, text: onScreenText, frame } } : {});
   useEffect(() => {
     if (!frameMode || !result) { setCardImg(''); return; }
     const t = setTimeout(() => {
-      api.cardPreview(accountId, onScreenText, frame.cardScale)
+      api.cardPreview(accountId || null, onScreenText, frame.cardScale, layout)
         .then(r => { setCardImg(r.image); setCardH(r.height); setCanvasColor(r.canvasColor || '#000000'); })
         .catch(() => setCardImg(''));
     }, 400);
     return () => clearTimeout(t);
-  }, [frameMode, accountId, onScreenText, frame.cardScale, result?.postId]);
+  }, [frameMode, layout, accountId, onScreenText, frame.cardScale, result?.postId]);
 
   // New video (or newly uploaded file) → start from the auto-detected crop (black bars removed)
   useEffect(() => {
@@ -375,13 +377,24 @@ export default function NewPost() {
             placeholder="Add on-screen text…"
             style={{ ...s.textarea, fontSize: 16, fontWeight: 600, lineHeight: 1.5, background: 'transparent', border: '1px solid #2a2a4a', color: '#fff', resize: 'vertical' }}
           />
-          <label htmlFor="use-card" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: accountId ? '#bbb' : '#555', cursor: accountId ? 'pointer' : 'default' }}>
-            <input id="use-card" name="use_card" type="checkbox" checked={useCard && !!accountId} disabled={!accountId} onChange={e => setUseCard(e.target.checked)} style={{ accentColor: '#833ab4', width: 16, height: 16 }} />
-            Page card layout: put this text in a branded card above the video
-          </label>
-          {!accountId && <div style={{ fontSize: 11, color: '#555', marginTop: 5 }}>Pick a page below to use the card layout.</div>}
-          {useCard && !!accountId && !onScreenText.trim() && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 5 }}>Add on-screen text above to use the card.</div>}
-          {cardOn && <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Rendered into a 1080×1920 video when you post. Set the picture, name and badge in Accounts. Adjust framing below.</div>}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Layout</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['card', 'Page card'], ['text', 'Text only']].map(([key, label]) => (
+                <button key={key} type="button" onClick={() => setLayout(key)}
+                  style={{ flex: 1, padding: '11px 10px', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                    background: layout === key ? 'rgba(168,85,247,0.15)' : '#111',
+                    border: `1px solid ${layout === key ? 'rgba(168,85,247,0.5)' : '#2a2a2a'}`,
+                    color: layout === key ? '#c084fc' : '#999' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {layout === 'card' && !accountId && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 8 }}>Pick a page below to use the page card, or switch to Text only.</div>}
+            {layout === 'card' && !!accountId && !onScreenText.trim() && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 8 }}>Add on-screen text above to use the page card.</div>}
+            {layout === 'text' && <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Just the text line above the video. No page picture, name or handle. You can still post to any page.</div>}
+            {cardOn && <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Rendered into a 1080×1920 video when you post. Adjust the framing below.</div>}
+          </div>
         </div>
 
         {isIgCaption && (
