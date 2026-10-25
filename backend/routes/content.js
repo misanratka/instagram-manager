@@ -160,20 +160,22 @@ router.post('/process-file', upload.single('video'), async (req, res, next) => {
 });
 
 // Renders the page card to a temp PNG. Returns { brand } or { error, status }.
-async function buildBrandCard(req, accountId, text, dir, frame) {
+async function buildBrandCard(req, accountId, text, dir, frame, mode) {
+  const plain = mode === 'text';   // text only: same layout without the page branding
   const account = accountId ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId]) : null;
-  if (!account) return { status: 400, error: 'Pick a page first to use the card layout.' };
+  if (!account && !plain) return { status: 400, error: 'Pick a page first to use the card layout.' };
   const userId = req.headers['x-user-id'];
-  if (userId && account.user_id && account.user_id !== userId) return { status: 403, error: 'Not your page.' };
+  if (account && userId && account.user_id && account.user_id !== userId) return { status: 403, error: 'Not your page.' };
   const t = String(text || '').trim();
-  if (!t) return { status: 400, error: 'Add on-screen text first — it goes inside the card.' };
+  if (!t && !plain) return { status: 400, error: 'Add on-screen text first — it goes inside the card.' };
   const card = await renderCard({
-    name: account.brand_name || account.name,
-    handle: account.brand_handle || account.username,
-    verified: !!account.brand_verified,
-    avatar: account.brand_avatar,
+    plain,
+    name: account?.brand_name || account?.name,
+    handle: account?.brand_handle || account?.username,
+    verified: !!account?.brand_verified,
+    avatar: account?.brand_avatar,
     text: t,
-    theme: account.brand_theme || 'dark',
+    theme: account?.brand_theme || 'dark',
     scale: frame?.cardScale
   });
   const cardPath = path.join(dir, `card_${uuidv4()}.png`);
@@ -184,18 +186,20 @@ async function buildBrandCard(req, accountId, text, dir, frame) {
 // Live preview of the card (PNG as a data URL) for the review screen
 router.post('/card-preview', async (req, res, next) => {
   try {
-    const { account_id, text, scale } = req.body || {};
+    const { account_id, text, scale, mode } = req.body || {};
+    const plain = mode === 'text';
     const account = account_id ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [account_id]) : null;
-    if (!account) return res.status(400).json({ error: 'Pick a page first.' });
+    if (!account && !plain) return res.status(400).json({ error: 'Pick a page first.' });
     const userId = req.headers['x-user-id'];
-    if (userId && account.user_id && account.user_id !== userId) return res.status(403).json({ error: 'Not your page.' });
+    if (account && userId && account.user_id && account.user_id !== userId) return res.status(403).json({ error: 'Not your page.' });
     const card = await renderCard({
-      name: account.brand_name || account.name,
-      handle: account.brand_handle || account.username,
-      verified: !!account.brand_verified,
-      avatar: account.brand_avatar,
-      text: String(text || '').trim() || 'Your on-screen text appears here',
-      theme: account.brand_theme || 'dark',
+      plain,
+      name: account?.brand_name || account?.name,
+      handle: account?.brand_handle || account?.username,
+      verified: !!account?.brand_verified,
+      avatar: account?.brand_avatar,
+      text: String(text || '').trim() || (plain ? '' : 'Your on-screen text appears here'),
+      theme: account?.brand_theme || 'dark',
       scale
     });
     res.json({ image: `data:image/png;base64,${card.buffer.toString('base64')}`, width: card.width, height: card.height, canvasColor: card.canvasColor });
@@ -223,7 +227,7 @@ router.post('/enhance/:postId', async (req, res, next) => {
     // Page card layout (card on top, video below). Name/handle fall back to the connected account's own.
     let brand = null;
     if (wantsCard) {
-      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame);
+      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame, brandCard.mode);
       if (built.error) return res.status(built.status).json({ error: built.error });
       brand = built.brand;
     }
