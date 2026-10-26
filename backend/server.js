@@ -8,9 +8,11 @@ const { initDB } = require('./models/db');
 const accountRoutes = require('./routes/accounts');
 const contentRoutes = require('./routes/content');
 const postRoutes = require('./routes/posts');
+const autopilotRoutes = require('./routes/autopilot');
 const authRoutes = require('./routes/auth');
 const { errorHandler } = require('./middleware/errorHandler');
 const { startScheduler } = require('./services/scheduler');
+const { startAutopilot } = require('./services/autopilot');
 const logger = require('./services/logger');
 
 const app = express();
@@ -29,6 +31,7 @@ app.use('/uploads', express.static(uploadDir));
 app.use('/api/accounts', accountRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/autopilot', autopilotRoutes);
 app.use('/auth', authRoutes);
 
 app.get('/api/health', (req, res) =>
@@ -55,6 +58,7 @@ app.use(errorHandler);
 async function start() {
   await initDB();
   startScheduler();
+  startAutopilot();
   app.listen(PORT, () => {
     logger.info(`Backend running at http://localhost:${PORT}`);
     if (!process.env.GROQ_API_KEY) logger.warn('GROQ_API_KEY not set - transcription and AI captions will be skipped');
