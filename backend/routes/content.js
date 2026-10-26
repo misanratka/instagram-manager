@@ -38,6 +38,58 @@ function cleanMetaText(t = '') {
   return s;
 }
 
+// ── Background jobs + only one heavy job at a time ───────────────────────────
+// Long steps (download, caption, render) would otherwise hold a web request open for minutes, which is fragile
+// on a free server and on phones. With the header `x-async: 1` the route answers at once with a jobId and the
+// work continues in the background; poll GET /api/content/job/:id. Without the header it behaves as before.
+// Heavy jobs run one after another so two devices don't starve each other (and the server doesn't run out of memory).
+const jobs = new Map();   // id -> { status: queued|running|done|error, queuedAt, startedAt, finishedAt, code, body }
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [id, j] of jobs) if ((j.finishedAt || j.queuedAt) < cutoff) jobs.delete(id);
+}, 5 * 60 * 1000).unref();
+
+let heavyChain = Promise.resolve();
+let heavyWaiting = 0;
+function runHeavy(fn) {
+  heavyWaiting++;
+  const p = heavyChain.then(() => { heavyWaiting--; return fn(); });
+  heavyChain = p.catch(() => {});
+  return p;
+}
+
+function heavy(handler) {
+  return (req, res, next) => {
+    if (req.headers['x-async'] !== '1') return runHeavy(() => handler(req, res, next)).catch(next);
+    const id = uuidv4();
+    const job = { status: 'queued', queuedAt: Date.now() };
+    jobs.set(id, job);
+    const fail = (err) => { job.finishedAt = Date.now(); job.status = 'error'; job.code = 500; job.body = { error: err?.message || 'Failed' }; };
+    const fakeRes = {
+      statusCode: 200,
+      status(c) { this.statusCode = c; return this; },
+      json(b) { job.finishedAt = Date.now(); job.code = this.statusCode; job.body = b; job.status = this.statusCode >= 400 ? 'error' : 'done'; return this; }
+    };
+    runHeavy(async () => { job.status = 'running'; job.startedAt = Date.now(); await handler(req, fakeRes, fail); })
+      .catch(fail)
+      .finally(() => { if (job.status === 'running') fail(new Error('Finished without a result')); });
+    res.status(202).json({ jobId: id, waiting_behind: Math.max(0, heavyWaiting - 1) });
+  };
+}
+
+router.get('/job/:id', (req, res) => {
+  const j = jobs.get(req.params.id);
+  if (!j) return res.status(404).json({ error: 'That job is gone (the server may have restarted). Please try again.' });
+  const base = {
+    status: j.status,
+    elapsed_s: Math.round(((j.finishedAt || Date.now()) - (j.startedAt || j.queuedAt)) / 1000),
+    waiting_behind: j.status === 'queued' ? heavyWaiting : 0
+  };
+  if (j.status === 'done') return res.json({ ...base, result: j.body });
+  if (j.status === 'error') return res.json({ ...base, error: j.body?.error || 'Failed' });
+  res.json(base);
+});
+
 function srtToText(srt = '') {
   return String(srt || '').split(/\r?\n/)
     .filter(l => l.trim() && !/^\d+$/.test(l.trim()) && !/-->/.test(l)).join(' ');
@@ -62,10 +114,12 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}, options =
     : null;
 
   // Skip transcription when there is no local video file
+  const tPrep = Date.now();
   const [{ text: transcript, segments }, autoCrop] = await Promise.all([
     videoPath ? transcribeVideo(videoPath) : Promise.resolve({ text: '', segments: [] }),
     videoPath ? detectContentRect(videoPath).catch(() => null) : Promise.resolve(null)
   ]);
+  logger.info(`[timing] transcribe + bar detection: ${Math.round((Date.now() - tPrep) / 1000)}s`);
   const srtContent = segmentsToSRT(segments);
 
   // Nothing to write from (no video, no transcript, no real post text): don't let the AI make something up.
@@ -87,7 +141,7 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}, options =
   return { transcript, segments, srtContent, caption, hookText: onScreenText, onScreenSuggestions: [], autoCrop };
 }
 
-router.post('/process-url', async (req, res, next) => {
+router.post('/process-url', heavy(async (req, res, next) => {
   try {
     const { url, account_id } = req.body;
     if (!url || !url.trim()) return res.status(400).json({ error: 'url is required' });
@@ -136,9 +190,9 @@ router.post('/process-url', async (req, res, next) => {
       autoCrop: autoCrop || null,
     });
   } catch (err) { next(err); }
-});
+}));
 
-router.post('/process-file', upload.single('video'), async (req, res, next) => {
+router.post('/process-file', upload.single('video'), heavy(async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No video file uploaded' });
     const { account_id } = req.body;
@@ -157,10 +211,10 @@ router.post('/process-file', upload.single('video'), async (req, res, next) => {
 
     res.json({ postId, videoUrl, transcript: transcript.substring(0, 600), generatedCaption: caption, hookText, srtContent, onScreenSuggestions, autoCrop: autoCrop || null });
   } catch (err) { next(err); }
-});
+}));
 
 // Renders the page card to a temp PNG. Returns { brand } or { error, status }.
-async function buildBrandCard(req, accountId, text, dir, frame, mode) {
+async function buildBrandCard(req, accountId, text, dir, frame, mode, quality) {
   const plain = mode === 'text';   // text only: same layout without the page branding
   const account = accountId ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId]) : null;
   if (!account && !plain) return { status: 400, error: 'Pick a page first to use the card layout.' };
@@ -180,7 +234,7 @@ async function buildBrandCard(req, accountId, text, dir, frame, mode) {
   });
   const cardPath = path.join(dir, `card_${uuidv4()}.png`);
   fs.writeFileSync(cardPath, card.buffer);
-  return { brand: { cardPath, cardH: card.height, frame: frame || null, canvasColor: card.canvasColor }, card };
+  return { brand: { cardPath, cardH: card.height, frame: frame || null, canvasColor: card.canvasColor, quality }, card };
 }
 
 // Live preview of the card (PNG as a data URL) for the review screen
@@ -206,7 +260,7 @@ router.post('/card-preview', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/enhance/:postId', async (req, res, next) => {
+router.post('/enhance/:postId', heavy(async (req, res, next) => {
   try {
     const { burnSubtitles = false, enhance = false, textOverlays = [], trim, adjustments, speed, cropRatio, subtitleStyle = 'standard', segments, brandCard, account_id } = req.body;
     const post = await getDB().get('SELECT * FROM posts WHERE id=$1', [req.params.postId]);
@@ -227,21 +281,23 @@ router.post('/enhance/:postId', async (req, res, next) => {
     // Page card layout (card on top, video below). Name/handle fall back to the connected account's own.
     let brand = null;
     if (wantsCard) {
-      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame, brandCard.mode);
+      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame, brandCard.mode, brandCard.quality);
       if (built.error) return res.status(built.status).json({ error: built.error });
       brand = built.brand;
     }
 
     let result;
+    const tRender = Date.now();
     try {
       result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
     } finally {
       if (brand?.cardPath && fs.existsSync(brand.cardPath)) fs.unlinkSync(brand.cardPath);
+      logger.info(`[timing] render: ${Math.round((Date.now() - tRender) / 1000)}s`);
     }
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
     res.json({ enhancedVideoUrl: result.url, message: 'Video enhanced successfully' });
   } catch (err) { next(err); }
-});
+}));
 
 // Attach a video file to an existing post (used when URL was Instagram — no download)
 router.post('/attach-video/:postId', upload.single('video'), async (req, res, next) => {
