@@ -58,6 +58,31 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_verified INTEGER DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_avatar TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_theme TEXT DEFAULT 'dark'`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_enabled INTEGER DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_per_day INTEGER DEFAULT 2`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_start_hour INTEGER DEFAULT 9`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_end_hour INTEGER DEFAULT 22`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_tz TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_layout TEXT DEFAULT 'card'`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_credit_line INTEGER DEFAULT 1`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_paused_reason TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_fail_streak INTEGER DEFAULT 0`).catch(() => {});
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS autopilot_queue (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      options TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      error TEXT,
+      post_id TEXT,
+      attempts INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_autopilot_queue_account ON autopilot_queue (account_id, status)`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS posts (
       id                  TEXT PRIMARY KEY,
@@ -144,6 +169,26 @@ function initSQLite() {
       created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
     );
+  `);
+
+  // Autopilot (columns added with try/catch because SQLite has no ADD COLUMN IF NOT EXISTS)
+  for (const [c, t] of [['ap_enabled', "INTEGER DEFAULT 0"], ['ap_per_day', "INTEGER DEFAULT 2"], ['ap_start_hour', "INTEGER DEFAULT 9"], ['ap_end_hour', "INTEGER DEFAULT 22"], ['ap_tz', "TEXT"], ['ap_layout', "TEXT DEFAULT 'card'"], ['ap_credit_line', "INTEGER DEFAULT 1"], ['ap_paused_reason', "TEXT"], ['ap_fail_streak', "INTEGER DEFAULT 0"]]) {
+    try { sqlite.exec(`ALTER TABLE accounts ADD COLUMN ${c} ${t}`); } catch { /* already there */ }
+  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS autopilot_queue (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      options TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      error TEXT,
+      post_id TEXT,
+      attempts INTEGER DEFAULT 0,
+      created_at TEXT,
+      started_at TEXT,
+      finished_at TEXT
+    )
   `);
 
   adapter = {
