@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import NewPost from './components/NewPost';
 import PostHistory from './components/PostHistory';
 import AccountManager from './components/AccountManager';
+import Autopilot from './components/Autopilot';
 
 const TABS = [
   { id: 'new', label: 'Create', icon: (active) => (
@@ -16,6 +17,12 @@ const TABS = [
       <rect x="14" y="3" width="7" height="7" rx="2" stroke={active ? '#fff' : '#555'} strokeWidth="2"/>
       <rect x="3" y="14" width="7" height="7" rx="2" stroke={active ? '#fff' : '#555'} strokeWidth="2"/>
       <rect x="14" y="14" width="7" height="7" rx="2" stroke={active ? '#fff' : '#555'} strokeWidth="2"/>
+    </svg>
+  )},
+  { id: 'autopilot', label: 'Autopilot', icon: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke={active ? '#fff' : '#555'} strokeWidth="2"/>
+      <path d="M12 7v5l3 2" stroke={active ? '#fff' : '#555'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   )},
   { id: 'accounts', label: 'Accounts', icon: (active) => (
@@ -132,6 +139,7 @@ export default function App() {
         {/* NewPost stays mounted so in-progress work isn't lost when switching tabs */}
         <div className="tab-enter" style={{ display: tab === 'new' ? 'block' : 'none' }}><NewPost /></div>
         {tab === 'history'  && <div key="history"  className="tab-enter"><PostHistory /></div>}
+        {tab === 'autopilot' && <div key="autopilot" className="tab-enter"><Autopilot /></div>}
         {tab === 'accounts' && <div key="accounts" className="tab-enter"><AccountManager /></div>}
       </main>
 
