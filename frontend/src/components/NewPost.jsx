@@ -80,6 +80,9 @@ export default function NewPost() {
   const [frame, setFrame]                 = useState(FULL_FRAME);
   const [autoFrame, setAutoFrame]         = useState(null);
   const [showAdv, setShowAdv]             = useState(false);
+  const [jobInfo, setJobInfo]             = useState(null);
+  const [quality, setQualityState]        = useState(() => { try { return localStorage.getItem('im_quality') === 'best' ? 'best' : 'fast'; } catch { return 'fast'; } });
+  const setQuality = (v) => { setQualityState(v); try { localStorage.setItem('im_quality', v); } catch { /* ignore */ } };
   const fileRef = useRef();
   const PUBLISH_STATUS_POLL_MS = 3000;
   const PUBLISH_STATUS_TIMEOUT_MS = 90000;
@@ -118,13 +121,14 @@ export default function NewPost() {
   }
 
   async function handleProcess(linkOverride) {
+    setJobInfo(null);
     const link = (typeof linkOverride === 'string' ? linkOverride : url).trim();
     if (!link && !file) return setError('Enter a video URL or upload a file');
     setError(''); setStep(STEPS.PROCESSING);
     try {
       const data = file
-        ? await api.processFile(file, accountId || null, capOpts)
-        : await api.processUrl(link, accountId || null, capOpts);
+        ? await api.processFile(file, accountId || null, capOpts, onProcessJob)
+        : await api.processUrl(link, accountId || null, capOpts, onProcessJob);
       setResult(data);
       setCaption(data.generatedCaption || '');
       setOnScreenText(data.hookText || '');
@@ -143,7 +147,7 @@ export default function NewPost() {
     setError('');
     try {
       const realText = textBoxes.filter(b => b.text && b.text.trim() && b.text !== 'Tap to type');
-      const res = await api.enhanceVideo(result.postId, {
+      const res = await enhanceJob(result.postId, {
         enhance:      shouldEnhance,
         burnSubs,
         textOverlays: realText,
@@ -173,7 +177,7 @@ export default function NewPost() {
     setError(''); setEnhancing(true);
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
-      const res = await api.enhanceVideo(result.postId, {
+      const res = await enhanceJob(result.postId, {
         burnSubtitles: burnSubs,
         subtitleStyle,
         segments,
@@ -205,7 +209,7 @@ export default function NewPost() {
       if (needsRender) {
         setSuccess('Processing video…');
         try {
-          const res = await api.enhanceVideo(result.postId, {
+          const res = await enhanceJob(result.postId, {
             enhance, burnSubs,
             textOverlays:  realText,
             trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
@@ -266,7 +270,7 @@ export default function NewPost() {
       if (needsRender) {
         setSuccess('Processing video…');
         try {
-          const res = await api.enhanceVideo(result.postId, {
+          const res = await enhanceJob(result.postId, {
             enhance, burnSubs,
             textOverlays:  realText,
             trim:          { start: Number(trimStart) || 0, end: Number(trimEnd) || 0 },
@@ -302,10 +306,14 @@ export default function NewPost() {
   const previewUrl   = mediaUrl(enhancedUrl || result?.videoUrl);
   // Card layout: page card on top, video below. Needs a page selected; text comes from the on-screen text box.
   // Layout choice: 'card' = page branding + text, 'text' = same layout with just the text line (no branding)
+  // live progress from the server's background jobs
+  const onProcessJob = (j) => setJobInfo(j);
+  const onRenderJob  = (j) => setSuccess(j.status === 'queued' ? 'Rendering video… waiting for another job to finish' : `Rendering video… ${j.elapsed_s || 0}s`);
+  const enhanceJob   = (id, opts) => api.enhanceVideo(id, opts, onRenderJob);
   const frameMode = layout === 'text' || !!accountId;                          // show the frame editor (crop + live preview)
   const cardOn    = frameMode && (layout === 'text' || !!onScreenText.trim());   // render the 1080x1920 layout when posting
   const srcUrl    = mediaUrl(result?.videoUrl);
-  const cardOpts = () => (cardOn ? { ...(accountId ? { account_id: accountId } : {}), brandCard: { enabled: true, mode: layout, text: onScreenText, frame } } : {});
+  const cardOpts = () => (cardOn ? { ...(accountId ? { account_id: accountId } : {}), brandCard: { enabled: true, mode: layout, text: onScreenText, frame, quality } } : {});
   useEffect(() => {
     if (!frameMode || !result) { setCardImg(''); return; }
     const t = setTimeout(() => {
@@ -347,7 +355,11 @@ export default function NewPost() {
       <div style={s.center}>
         <div style={s.spinner} />
         <div style={s.processingTitle}>Processing video…</div>
-        <div style={s.hint}>Downloading video and rewriting caption with AI. This may take a moment.</div>
+        <div style={s.hint}>
+          {jobInfo?.status === 'queued'
+            ? 'Another video is being processed. Yours is next…'
+            : `Downloading the video and writing the caption.${jobInfo?.elapsed_s ? ` ${jobInfo.elapsed_s}s` : ''} This can take a minute or two.`}
+        </div>
       </div>
     );
   }
@@ -393,7 +405,25 @@ export default function NewPost() {
             {layout === 'card' && !accountId && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 8 }}>Pick a page below to use the page card, or switch to Text only.</div>}
             {layout === 'card' && !!accountId && !onScreenText.trim() && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 8 }}>Add on-screen text above to use the page card.</div>}
             {layout === 'text' && <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Just the text line above the video. No page picture, name or handle. You can still post to any page.</div>}
-            {cardOn && <div style={{ fontSize: 11, color: '#555', marginTop: 6 }}>Rendered into a 1080×1920 video when you post. Adjust the framing below.</div>}
+            {cardOn && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Quality</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[['fast', 'Fast (720p)'], ['best', 'Best (1080p)']].map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => setQuality(key)}
+                      style={{ flex: 1, padding: '10px 10px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        background: quality === key ? 'rgba(168,85,247,0.15)' : '#111',
+                        border: `1px solid ${quality === key ? 'rgba(168,85,247,0.5)' : '#2a2a2a'}`,
+                        color: quality === key ? '#c084fc' : '#999' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
+                  {quality === 'fast' ? 'Renders about twice as fast. Good for most posts.' : 'Sharpest picture, but takes longer to render.'} Adjust the framing below.
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
