@@ -299,8 +299,38 @@ function parseResponse(raw, allowed, o) {
   }
 }
 
+// Fast path: send a few small frames from the video instead of uploading the whole file to Gemini
+// (no upload, no waiting for Gemini to process the video). GEMINI_VIDEO_MODE=upload brings the old behaviour back.
+async function generateWithGeminiFrames({ frames, transcript, originalCaption, videoTitle, captionStyle, customPrompt, o }) {
+  const { ai } = getGemini();
+  const style = resolveStyle(captionStyle, customPrompt);
+  const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript, mentions: o.mentions });
+  const extraContext = [
+    videoTitle      && `Video title: ${videoTitle}`,
+    originalCaption && `Original post caption: ${originalCaption.substring(0, 1200)}`,
+    transcript      && `Audio transcript: ${transcript.substring(0, 1500)}`,
+    textBlock,
+    buildOptionsBlock(o)
+  ].filter(Boolean).join('\n\n');
+  const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+  const result = await model.generateContent([
+    ...frames.map(data => ({ inlineData: { mimeType: 'image/jpeg', data } })),
+    { text: `The images above are ${frames.length} frames taken in order from the video.\n\n${buildSystemPrompt(o)}\n\nCaption style: ${style}\n\n${extraContext}\n\nGenerate the on-screen text and caption now:` }
+  ]);
+  return parseResponse(result.response.text(), allowed, o);
+}
+
 // Upload video to Gemini Files API and generate content using vision
 async function generateWithGeminiVision({ videoPath, transcript, originalCaption, videoTitle, captionStyle, customPrompt, o }) {
+  if (process.env.GEMINI_VIDEO_MODE !== 'upload') {
+    try {
+      const { extractFrames } = require('./videoProcessor');
+      const frames = await extractFrames(videoPath, 6);
+      if (frames.length) return await generateWithGeminiFrames({ frames, transcript, originalCaption, videoTitle, captionStyle, customPrompt, o });
+    } catch (e) {
+      logger.warn('Frame sampling failed, uploading the whole video instead: ' + e.message);
+    }
+  }
   const { ai, fm } = getGemini();
   const style = resolveStyle(captionStyle, customPrompt);
 
