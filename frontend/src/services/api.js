@@ -22,13 +22,13 @@ function getUserId() {
   } catch { return null; }
 }
 
-async function request(method, path, data, isForm = false) {
+async function request(method, path, data, isForm = false, extraHeaders = {}) {
   const userId = getUserId();
   const opts = {
     method,
     headers: isForm
-      ? (userId ? { 'x-user-id': userId } : {})
-      : { 'Content-Type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}) },
+      ? { ...(userId ? { 'x-user-id': userId } : {}), ...extraHeaders }
+      : { 'Content-Type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}), ...extraHeaders },
     body: data ? (isForm ? data : JSON.stringify(data)) : undefined
   };
   const res = await fetch(`${BASE}${path}`, opts);
@@ -52,6 +52,31 @@ function toApiOptions(o = {}) {
   return out;
 }
 
+// Long steps (download, caption, render) run as background jobs on the server: we start one, then check on it
+// every few seconds. No single request stays open for minutes, so nothing "sticks" on slow connections.
+// The result has the same shape as before, so callers don't change. Pass onStatus to show progress.
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function requestJob(method, path, data, isForm, onStatus) {
+  const start = await request(method, path, data, isForm, { 'x-async': '1' });
+  if (!start.jobId) return start;                       // older server: it answered directly
+  const t0 = Date.now();
+  let errors = 0;
+  for (;;) {
+    await sleep(2500);
+    let j;
+    try { j = await request('GET', `/content/job/${start.jobId}`); errors = 0; }
+    catch (e) {
+      if (/job is gone/i.test(e.message)) throw e;      // the server restarted
+      if (++errors >= 6) throw new Error('Lost connection to the server. Check your internet and try again.');
+      continue;                                         // a hiccup (or the server waking up): try again
+    }
+    if (onStatus) onStatus(j);
+    if (j.status === 'done') return j.result;
+    if (j.status === 'error') throw new Error(j.error || 'Something went wrong');
+    if (Date.now() - t0 > 25 * 60 * 1000) throw new Error('This is taking too long. Please try again.');
+  }
+}
+
 export const api = {
   // Accounts
   getAccounts:   ()         => request('GET',    '/accounts'),
@@ -59,14 +84,14 @@ export const api = {
   updateAccount: (id, data) => request('PUT',    `/accounts/${id}`, data),
   deleteAccount: (id)       => request('DELETE', `/accounts/${id}`),
   // Content processing
-  processUrl:  (url, account_id, options = {}) =>
-    request('POST', '/content/process-url', { url, account_id, ...toApiOptions(options) }),
-  processFile: (file, account_id, options = {}) => {
+  processUrl:  (url, account_id, options = {}, onStatus) =>
+    requestJob('POST', '/content/process-url', { url, account_id, ...toApiOptions(options) }, false, onStatus),
+  processFile: (file, account_id, options = {}, onStatus) => {
     const fd = new FormData();
     fd.append('video', file);
     if (account_id) fd.append('account_id', account_id);
     Object.entries(toApiOptions(options)).forEach(([k, v]) => fd.append(k, String(v)));
-    return request('POST', '/content/process-file', fd, true);
+    return requestJob('POST', '/content/process-file', fd, true, onStatus);
   },
   regenerateCaption: (postId, account_id, options = {}) =>
     request('POST', `/content/regenerate/${postId}`, { account_id: account_id || undefined, ...toApiOptions(options) }),
@@ -76,7 +101,15 @@ export const api = {
     fd.append('video', file);
     return request('POST', `/content/attach-video/${postId}`, fd, true);
   },
-  enhanceVideo:  (postId, opts) => request('POST', `/content/enhance/${postId}`, opts),
+  enhanceVideo:  (postId, opts, onStatus) => requestJob('POST', `/content/enhance/${postId}`, opts, false, onStatus),
+  autopilot:         () => request('GET', '/autopilot'),
+  autopilotSettings: (id, body) => request('PUT', `/autopilot/${id}/settings`, body),
+  autopilotQueue:    (id) => request('GET', `/autopilot/${id}/queue`),
+  autopilotAdd:      (id, urls, options) => request('POST', `/autopilot/${id}/queue`, { urls, options }),
+  autopilotRemove:   (itemId) => request('DELETE', `/autopilot/item/${itemId}`),
+  autopilotRetry:    (itemId) => request('POST', `/autopilot/item/${itemId}/retry`),
+  autopilotRun:      (id) => request('POST', `/autopilot/${id}/run`),
+  autopilotResume:   (id) => request('POST', `/autopilot/${id}/resume`),
   cardPreview:   (account_id, text, scale, mode) => request('POST', '/content/card-preview', { account_id, text, scale, mode }),
   // Posts
   getPosts: (params = {}) => {
