@@ -11,10 +11,15 @@ function getUploadDir() {
   return path.resolve(process.env.UPLOAD_DIR || './uploads');
 }
 
+// Run heavy ffmpeg work at low CPU priority (when `nice` exists) so the web app stays responsive while rendering.
+const NICE = fs.existsSync('/usr/bin/nice') ? '/usr/bin/nice' : null;
+const FFMPEG_TIMEOUT_MS = Number(process.env.FFMPEG_TIMEOUT_MS) || 15 * 60 * 1000;   // slow CPUs need more than 5 minutes
+
 function runFFmpeg(args, label) {
   return new Promise((resolve, reject) => {
     logger.info(`ffmpeg [${label}] starting`);
-    execFile('ffmpeg', args, { timeout: 300000 }, (err) => {
+    const [cmd, cmdArgs] = NICE ? [NICE, ['-n', '10', 'ffmpeg', ...args]] : ['ffmpeg', args];
+    execFile(cmd, cmdArgs, { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }, (err) => {
       if (err) {
         logger.error(`ffmpeg [${label}] failed: ${err.message}`);
         return reject(new Error(`ffmpeg ${label} failed: ${err.message}`));
@@ -54,13 +59,14 @@ function frameCrop(W, H, fr) {
 async function detectContentRect(videoPath) {
   const dims = await getVideoDimensions(videoPath);
   const stderr = await new Promise((resolve) => {
-    execFile('ffmpeg', ['-hide_banner', '-ss', '0.3', '-t', '6', '-i', videoPath, '-vf', 'fps=3,cropdetect=limit=24:round=2:reset=0', '-an', '-f', 'null', '-'],
-      { timeout: 30000, maxBuffer: 8 * 1024 * 1024 }, (err, so, se) => resolve(String(se || '')));
+    const cmdArgs = ['-hide_banner', '-ss', '0.3', '-t', '3', '-i', videoPath, '-vf', 'fps=2,scale=trunc(iw/4)*2:trunc(ih/4)*2,cropdetect=limit=24:round=2:reset=0', '-an', '-f', 'null', '-'];
+    const [cmd, a] = NICE ? [NICE, ['-n', '10', 'ffmpeg', ...cmdArgs]] : ['ffmpeg', cmdArgs];
+    execFile(cmd, a, { timeout: 30000, maxBuffer: 8 * 1024 * 1024 }, (err, so, se) => resolve(String(se || '')));
   });
   const all = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
   if (!all.length) return null;
   const [w, h, x, y] = all[all.length - 1].slice(1).map(Number);
-  const W = dims.width, H = dims.height;
+  const W = Math.trunc(dims.width / 4) * 2, H = Math.trunc(dims.height / 4) * 2;   // detection ran on a quarter-size picture; fractions stay valid
   if (!w || !h || w < 0.2 * W || h < 0.08 * H || w * h < 0.06 * W * H) return null;   // implausibly small (very dark video) — ignore
   if (w >= W * 0.98 && h >= H * 0.98) return null;                  // no bars
   // tiny trims are noise: snap to the full frame
@@ -68,6 +74,20 @@ async function detectContentRect(videoPath) {
   const nx = full(w, W) ? 0 : x, nw = full(w, W) ? W : w;
   const ny = full(h, H) ? 0 : y, nh = full(h, H) ? H : h;
   return { x: nx / W, y: ny / H, w: nw / W, h: nh / H };
+}
+
+// Up to `count` small JPEG frames spread through the video. Only key frames are decoded, so this is quick even on a slow CPU.
+async function extractFrames(videoPath, count = 6) {
+  const dir = fs.mkdtempSync(path.join(getUploadDir(), 'frames_'));
+  try {
+    const args = ['-hide_banner', '-loglevel', 'error', '-skip_frame', 'nokey', '-i', videoPath,
+      '-vf', "select='isnan(prev_selected_t)+gte(t-prev_selected_t,2.5)',scale=640:-2", '-vsync', 'vfr', '-frames:v', String(count), '-q:v', '5', path.join(dir, 'f_%02d.jpg')];
+    const [cmd, a] = NICE ? [NICE, ['-n', '10', 'ffmpeg', ...args]] : ['ffmpeg', args];
+    await new Promise((resolve, reject) => execFile(cmd, a, { timeout: 60000 }, (err) => (err ? reject(err) : resolve())));
+    return fs.readdirSync(dir).filter(f => f.endsWith('.jpg')).sort().map(f => fs.readFileSync(path.join(dir, f)).toString('base64'));
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 }
 
 function getVideoDimensions(videoPath) {
@@ -390,6 +410,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // Brand layout: where the card and the (scaled) video sit on a 1080x1920 canvas
   let layout = null;
+  let layoutQuality = 'best';
   if (brand?.cardPath) {
     const dims = await getVideoDimensions(inputPath);
     let sw = dims.width, sh = dims.height;
@@ -401,6 +422,14 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
       if (m) { sw = Number(m[1]); sh = Number(m[2]); }
     }
     layout = computeLayout({ cardH: brand.cardH, srcW: sw, srcH: sh, offsetY: brand.frame?.offsetY });
+    // Quality: 'best' = 1080x1920. 'fast' (default) = 720x1280, about 2.2x fewer pixels to encode.
+    layoutQuality = brand.quality === 'best' ? 'best' : brand.quality === 'fast' ? 'fast' : (process.env.RENDER_QUALITY === 'best' ? 'best' : 'fast');
+    const S = layoutQuality === 'best' ? 1 : 2 / 3;
+    if (S !== 1) {
+      const ev = (n) => Math.max(2, Math.round((n * S) / 2) * 2);
+      layout = { canvasW: ev(layout.canvasW), canvasH: ev(layout.canvasH), cardX: ev(layout.cardX), cardY: ev(layout.cardY),
+                 vidW: ev(layout.vidW), vidH: ev(layout.vidH), vidX: ev(layout.vidX), vidY: ev(layout.vidY), cardScaleW: ev(952) };
+    }
   }
 
   // 2. Speed
@@ -523,12 +552,12 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
     );
   }
 
-  const crf = preset?.crf || (layout ? '19' : enhance ? '18' : '23');
+  const crf = preset?.crf || (layout ? (layoutQuality === 'best' ? '19' : '22') : enhance ? '18' : '23');
   const args = [...inputArgs];
   if (layout) {
     args.push(
       '-filter_complex',
-      `[1:v]${vFilters.join(',')}[bg];[bg][0:v]overlay=${layout.cardX}:${layout.cardY}:shortest=1,format=yuv420p[vout]`,
+      `${layout.cardScaleW ? `[0:v]scale=${layout.cardScaleW}:-2:flags=bicubic[cardimg];` : ''}[1:v]${vFilters.join(',')}[bg];[bg][${layout.cardScaleW ? 'cardimg' : '0:v'}]overlay=${layout.cardX}:${layout.cardY}:shortest=1,format=yuv420p[vout]`,
       '-map', '[vout]', '-map', '1:a?'
     );
   } else if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
@@ -542,7 +571,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // Quality encode (High profile, 48kHz audio) - still single-thread for Render free tier
   args.push('-c:v', 'libx264');
-  args.push('-preset', layout ? 'superfast' : 'veryfast');
+  args.push('-preset', layout ? (layoutQuality === 'best' ? 'superfast' : 'ultrafast') : 'veryfast');
   args.push('-crf', crf);
   args.push('-threads', THREADS);
   args.push('-profile:v', 'high', '-level:v', '4.1');
@@ -581,4 +610,4 @@ function getVideoDuration(videoPath) {
   });
 }
 
-module.exports = { enhanceVideo, extractAudio, getVideoDuration, detectContentRect };
+module.exports = { enhanceVideo, extractAudio, getVideoDuration, detectContentRect, extractFrames };
