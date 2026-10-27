@@ -56,7 +56,7 @@ function frameCrop(W, H, fr) {
 }
 
 // Finds the real picture inside black bars (letterbox/pillarbox). Returns fractions of the frame, or null.
-async function detectContentRect(videoPath) {
+async function detectBarsRect(videoPath) {
   const dims = await getVideoDimensions(videoPath);
   const stderr = await new Promise((resolve) => {
     const cmdArgs = ['-hide_banner', '-ss', '0.3', '-t', '3', '-i', videoPath, '-vf', 'fps=2,scale=trunc(iw/4)*2:trunc(ih/4)*2,cropdetect=limit=24:round=2:reset=0', '-an', '-f', 'null', '-'];
@@ -88,6 +88,88 @@ async function extractFrames(videoPath, count = 6) {
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+}
+
+// ── Find the real video inside a "template" reel ─────────────────────────────────────────────
+// Many clips are a video in the middle of a black or white screen with static text above/below.
+// Static things (background, text, avatars) never change between frames; the real video does.
+// So: look at a few small frames, find where pixels change, and take that block.
+const GRID_W = 270;   // analysis width (4 px per cell on a 1080 px frame)
+
+function grabGrayFrames(videoPath, args, w, h) {
+  return new Promise((resolve) => {
+    const full = ['-hide_banner', '-loglevel', 'error', ...args, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'];
+    const [cmd, a] = NICE ? [NICE, ['-n', '10', 'ffmpeg', ...full]] : ['ffmpeg', full];
+    execFile(cmd, a, { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60000 }, (err, stdout) => {
+      if (err || !stdout || !stdout.length) return resolve([]);
+      const size = w * h, n = Math.floor(stdout.length / size), frames = [];
+      for (let i = 0; i < n; i++) frames.push(stdout.subarray(i * size, (i + 1) * size));
+      resolve(frames);
+    });
+  });
+}
+
+// Largest run of "on" entries, allowing small gaps. `weight[i]` decides which run wins.
+function bestRun(on, weight, maxGap) {
+  let best = null, start = -1, last = -1, sum = 0;
+  const close = () => { if (start >= 0 && (!best || sum > best.sum)) best = { start, end: last, sum }; };
+  for (let i = 0; i < on.length; i++) {
+    if (!on[i]) continue;
+    if (start >= 0 && i - last - 1 <= maxGap) { last = i; sum += weight[i]; }
+    else { close(); start = i; last = i; sum = weight[i]; }
+  }
+  close();
+  return best;
+}
+
+function dynamicBox(frames, w, h) {
+  const n = frames.length, px = w * h;
+  const mean = new Float32Array(px), dev = new Float32Array(px);
+  for (const f of frames) for (let i = 0; i < px; i++) mean[i] += f[i];
+  for (let i = 0; i < px; i++) mean[i] /= n;
+  for (const f of frames) for (let i = 0; i < px; i++) dev[i] += Math.abs(f[i] - mean[i]);
+  const T = 4 * n;                                   // average change of ~4 grey levels = "moving"
+  const rowCnt = new Float32Array(h);
+  for (let y = 0; y < h; y++) { let c = 0; for (let x = 0; x < w; x++) if (dev[y * w + x] > T) c++; rowCnt[y] = c; }
+  const rowOn = Array.from(rowCnt, c => c >= 0.10 * w);
+  const rows = bestRun(rowOn, rowCnt, 3);
+  if (!rows) return null;
+  const bandH = rows.end - rows.start + 1;
+  const colCnt = new Float32Array(w);
+  for (let x = 0; x < w; x++) { let c = 0; for (let y = rows.start; y <= rows.end; y++) if (dev[y * w + x] > T) c++; colCnt[x] = c; }
+  const cols = bestRun(Array.from(colCnt, c => c >= 0.15 * bandH), colCnt, 3);
+  if (!cols) return null;
+  return { x0: cols.start, x1: cols.end, y0: rows.start, y1: rows.end };
+}
+
+async function detectMainVideoRect(videoPath) {
+  const dims = await getVideoDimensions(videoPath);
+  const w = GRID_W, h = Math.max(2, Math.round((w * dims.height) / dims.width / 2) * 2);
+  const scale = `scale=${w}:-2`;
+  // 1) key frames only (cheap to decode, and a second or more apart so real video differs between them)
+  let frames = await grabGrayFrames(videoPath, ['-skip_frame', 'nokey', '-i', videoPath, '-vf', `select='isnan(prev_selected_t)+gte(t-prev_selected_t,1)',${scale}`, '-vsync', 'vfr', '-frames:v', '8'], w, h);
+  // 2) too few key frames (short clip): decode a couple of seconds instead
+  if (frames.length < 3) frames = await grabGrayFrames(videoPath, ['-ss', '0.3', '-t', '2.5', '-i', videoPath, '-vf', `fps=2,${scale}`, '-frames:v', '5'], w, h);
+  if (frames.length < 2) return null;
+  const box = dynamicBox(frames, w, h);
+  if (!box) return null;
+  const bw = box.x1 - box.x0 + 1, bh = box.y1 - box.y0 + 1;
+  if (bw < 0.2 * w || bh < 0.08 * h || bw * bh < 0.06 * w * h) return null;   // implausibly small
+  if (bw >= 0.97 * w && bh >= 0.97 * h) return null;                           // already the whole frame
+  const full = (v, total) => v >= 0.97 * total;
+  return {
+    x: full(bw, w) ? 0 : box.x0 / w, w: full(bw, w) ? 1 : bw / w,
+    y: full(bh, h) ? 0 : box.y0 / h, h: full(bh, h) ? 1 : bh / h
+  };
+}
+
+// Best guess at the real video: moving block first, plain black-bar trimming as a fallback.
+async function detectContentRect(videoPath) {
+  try {
+    const r = await detectMainVideoRect(videoPath);
+    if (r) return r;
+  } catch (e) { logger.warn('Motion-based crop detection failed: ' + e.message); }
+  return detectBarsRect(videoPath);
 }
 
 function getVideoDimensions(videoPath) {
@@ -610,4 +692,4 @@ function getVideoDuration(videoPath) {
   });
 }
 
-module.exports = { enhanceVideo, extractAudio, getVideoDuration, detectContentRect, extractFrames };
+module.exports = { enhanceVideo, extractAudio, getVideoDuration, detectContentRect, detectMainVideoRect, extractFrames };
