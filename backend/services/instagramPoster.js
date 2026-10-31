@@ -84,6 +84,25 @@ async function getPermalink(mediaId, accessToken) {
   } catch { return null; }
 }
 
+/** The account's Instagram profile picture, shrunk to a small square JPEG data URL (about 5 KB) so it can be saved and never expires. */
+async function fetchProfilePicture(igUserId, accessToken) {
+  if (!igUserId || !accessToken) return null;
+  try {
+    const meta = await axios.get(`${getGraphBase(accessToken)}/${igUserId}`, {
+      params: { fields: 'profile_picture_url', access_token: accessToken }, timeout: 15000
+    });
+    const url = meta.data?.profile_picture_url;
+    if (!url) return null;
+    const img = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000, maxContentLength: 5 * 1024 * 1024 });
+    const { createCanvas, loadImage } = require('@napi-rs/canvas');
+    const src = await loadImage(Buffer.from(img.data));
+    const S = 128, side = Math.min(src.width, src.height);
+    const c = createCanvas(S, S);
+    c.getContext('2d').drawImage(src, (src.width - side) / 2, (src.height - side) / 2, side, side, 0, 0, S, S);
+    return `data:image/jpeg;base64,${c.toBuffer('image/jpeg', 82).toString('base64')}`;
+  } catch { return null; }
+}
+
 async function debugAccessToken(accessToken) {
   const appAccessToken = getAppAccessToken();
   if (!appAccessToken) {
@@ -374,6 +393,7 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
 module.exports = {
   postReel,
   getPermalink,
+  fetchProfilePicture,
   verifyToken,
   verifyPublishingAccess,
   REQUIRED_SCOPES,
