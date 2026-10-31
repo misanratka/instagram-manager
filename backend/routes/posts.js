@@ -4,6 +4,7 @@ const { getDB } = require('../models/db');
 const { postReel, verifyPublishingAccess, tokenFingerprint } = require('../services/instagramPoster');
 const { postReelWithBrowser } = require('../services/instagramWebPoster');
 const logger = require('../services/logger');
+const { gateDecision } = require('../services/contentGuard');
 
 const router = express.Router();
 const activePostPublishes = new Set();
@@ -68,6 +69,10 @@ router.post('/:id/publish', async (req, res, next) => {
     );
     if (!post) return res.status(400).json({ error: 'Post not found, or no account selected for this post' });
     if (post.status === 'publishing') return res.status(409).json({ error: 'This post is already publishing.' });
+
+    const gate = gateDecision(post, req.body);
+    if (gate?.error) return res.status(gate.status).json({ error: gate.error });
+    if (gate?.ack) await db.run('UPDATE posts SET guard_ack=1 WHERE id=$1', [post.id]);
 
     if (!post.ig_user_id) {
       return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Instagram User ID.` });
@@ -178,6 +183,9 @@ router.post('/:id/schedule', async (req, res, next) => {
     );
     if (!post) return res.status(400).json({ error: 'Post not found, or no account selected' });
     if (post.status === 'publishing') return res.status(409).json({ error: 'This post is currently publishing.' });
+    const gate = gateDecision(post, req.body);
+    if (gate?.error) return res.status(gate.status).json({ error: gate.error });
+    if (gate?.ack) await db.run('UPDATE posts SET guard_ack=1 WHERE id=$1', [post.id]);
     if (!post.ig_user_id) return res.status(400).json({ error: `Account "${post.acct_name}" is missing an Instagram User ID.` });
     if (!post.access_token && !post.fallback_session_path) {
       return res.status(400).json({ error: `Account "${post.acct_name}" is missing a token and fallback session.` });
