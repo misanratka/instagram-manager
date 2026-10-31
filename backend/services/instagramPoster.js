@@ -73,6 +73,17 @@ async function verifyToken(igUserId, accessToken) {
   }
 }
 
+/** The public instagram.com link of a published post. Returns null if Instagram doesn't give one. */
+async function getPermalink(mediaId, accessToken) {
+  if (!mediaId || !accessToken) return null;
+  try {
+    const r = await axios.get(`${getGraphBase(accessToken)}/${mediaId}`, {
+      params: { fields: 'permalink', access_token: accessToken }, timeout: 15000
+    });
+    return r.data?.permalink || null;
+  } catch { return null; }
+}
+
 async function debugAccessToken(accessToken) {
   const appAccessToken = getAppAccessToken();
   if (!appAccessToken) {
@@ -362,6 +373,7 @@ async function postReel(igUserId, accessToken, videoUrl, caption, context = {}) 
 
 module.exports = {
   postReel,
+  getPermalink,
   verifyToken,
   verifyPublishingAccess,
   REQUIRED_SCOPES,
