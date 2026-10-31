@@ -469,7 +469,7 @@ function getVideoMetadata(url) {
       if (err) return resolve({ title: '', description: '', duration: 0 });
       try {
         const m = JSON.parse(stdout);
-        resolve({ title: m.title || '', description: m.description || '', duration: m.duration || 0, uploader: m.uploader || '', thumbnail: m.thumbnail || '' });
+        resolve({ title: m.title || '', description: m.description || '', duration: m.duration || 0, uploader: m.uploader || '', uploader_id: m.uploader_id || m.channel_id || '', channel: m.channel || '', track: m.track || '', artist: m.artist || '', license: m.license || '', tags: Array.isArray(m.tags) ? m.tags.slice(0, 30) : [], thumbnail: m.thumbnail || '' });
       } catch { resolve({ title: '', description: '', duration: 0 }); }
     });
   });
