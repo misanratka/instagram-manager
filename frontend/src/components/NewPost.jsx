@@ -652,7 +652,7 @@ export default function NewPost() {
         </Section>
 
         <div style={s.actions}>
-          <button onClick={handlePublish} disabled={posting || !accountId} style={{ ...s.btn, ...s.btnPrimary, opacity: posting || !accountId ? 0.4 : 1 }}>
+          <button onClick={handlePublish} disabled={posting || !accountId} className="shine" style={{ ...s.btn, ...s.btnPrimary, opacity: posting || !accountId ? 0.4 : 1 }}>
             {posting ? <><span style={s.miniSpinner} /> Posting…</> : '🚀 Post Now'}
           </button>
           <button onClick={() => setScheduling(v => !v)} style={{ ...s.btn, ...s.btnSecondary }}>
@@ -667,7 +667,7 @@ export default function NewPost() {
             <button
               onClick={handleSchedule}
               disabled={!scheduleTime || posting || !accountId}
-              style={{ ...s.btn, ...s.btnPrimary, marginTop: 10, opacity: !scheduleTime || posting || !accountId ? 0.4 : 1 }}
+              className="shine" style={{ ...s.btn, ...s.btnPrimary, marginTop: 10, opacity: !scheduleTime || posting || !accountId ? 0.4 : 1 }}
             >
               {posting ? 'Scheduling…' : 'Confirm Schedule'}
             </button>
@@ -743,7 +743,7 @@ export default function NewPost() {
 
       <CaptionOptions value={capOpts} onChange={setCapOpts} isFile={!!file} />
 
-      <button onClick={handleProcess} disabled={!url.trim() && !file} style={{ ...s.btn, ...s.btnPrimary, opacity: !url.trim() && !file ? 0.4 : 1 }}>
+      <button onClick={handleProcess} disabled={!url.trim() && !file} className="shine" style={{ ...s.btn, ...s.btnPrimary, opacity: !url.trim() && !file ? 0.4 : 1 }}>
         Process Video →
       </button>
     </div>
