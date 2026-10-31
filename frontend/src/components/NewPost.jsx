@@ -74,6 +74,9 @@ export default function NewPost() {
   const [captionBusy, setCaptionBusy]     = useState(false);
   const [layout, setLayoutState]         = useState(() => { try { return localStorage.getItem('im_layout') === 'text' ? 'text' : 'card'; } catch { return 'card'; } });
   const setLayout = (v) => { setLayoutState(v); try { localStorage.setItem('im_layout', v); } catch { /* ignore */ } };
+  // Card background: 'auto' = the page's own theme, or force black / white for this post
+  const [theme, setThemeState]            = useState(() => { try { const t = localStorage.getItem('im_theme'); return t === 'dark' || t === 'light' ? t : 'auto'; } catch { return 'auto'; } });
+  const setTheme = (v) => { setThemeState(v); try { localStorage.setItem('im_theme', v); } catch { /* ignore */ } };
   const [cardImg, setCardImg]             = useState('');
   const [cardH, setCardH]               = useState(null);
   const [canvasColor, setCanvasColor]     = useState('#000000');
@@ -197,8 +200,18 @@ export default function NewPost() {
     }
   }
 
+  // Safety gate: risky clips are never posted
+  function guardOk() {
+    const g = result?.guard;
+    if (!g || g.level === 'clear') return true;
+    const list = (g.reasons || []).map(r => '• ' + r).join('\n');
+    setError('Not posted — safety check:\n' + list);
+    return false;
+  }
+
   async function handlePublish() {
     if (!accountId) return setError('Select an Instagram account first');
+    if (!guardOk()) return;
     setPosting(true); setError(''); setSuccess('');
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
@@ -260,6 +273,7 @@ export default function NewPost() {
   async function handleSchedule() {
     if (!accountId) return setError('Select an Instagram account first');
     if (!scheduleTime) return setError('Pick a date and time');
+    if (!guardOk()) return;
     setPosting(true); setError('');
     try {
       await api.updateCaption(result.postId, { caption, hookText: '' });
@@ -313,16 +327,16 @@ export default function NewPost() {
   const frameMode = layout === 'text' || !!accountId;                          // show the frame editor (crop + live preview)
   const cardOn    = frameMode && (layout === 'text' || !!onScreenText.trim());   // render the 1080x1920 layout when posting
   const srcUrl    = mediaUrl(result?.videoUrl);
-  const cardOpts = () => (cardOn ? { ...(accountId ? { account_id: accountId } : {}), brandCard: { enabled: true, mode: layout, text: onScreenText, frame, quality } } : {});
+  const cardOpts = () => (cardOn ? { ...(accountId ? { account_id: accountId } : {}), brandCard: { enabled: true, mode: layout, text: onScreenText, frame, quality, ...(theme !== 'auto' ? { theme } : {}) } } : {});
   useEffect(() => {
     if (!frameMode || !result) { setCardImg(''); return; }
     const t = setTimeout(() => {
-      api.cardPreview(accountId || null, onScreenText, frame.cardScale, layout)
+      api.cardPreview(accountId || null, onScreenText, frame.cardScale, layout, theme !== 'auto' ? theme : undefined)
         .then(r => { setCardImg(r.image); setCardH(r.height); setCanvasColor(r.canvasColor || '#000000'); })
         .catch(() => setCardImg(''));
     }, 400);
     return () => clearTimeout(t);
-  }, [frameMode, layout, accountId, onScreenText, frame.cardScale, result?.postId]);
+  }, [frameMode, layout, theme, accountId, onScreenText, frame.cardScale, result?.postId]);
 
   // New video (or newly uploaded file) → start from the auto-detected crop (black bars removed)
   useEffect(() => {
@@ -398,6 +412,18 @@ export default function NewPost() {
                     background: layout === key ? 'rgba(168,85,247,0.15)' : '#111',
                     border: `1px solid ${layout === key ? 'rgba(168,85,247,0.5)' : '#2a2a2a'}`,
                     color: layout === key ? '#c084fc' : '#999' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '14px 0 8px' }}>Background</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['auto', 'Page default'], ['dark', 'Black'], ['light', 'White']].map(([key, label]) => (
+                <button key={key} type="button" onClick={() => setTheme(key)}
+                  style={{ flex: 1, padding: '11px 10px', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                    background: theme === key ? 'rgba(168,85,247,0.15)' : '#111',
+                    border: `1px solid ${theme === key ? 'rgba(168,85,247,0.5)' : '#2a2a2a'}`,
+                    color: theme === key ? '#c084fc' : '#999' }}>
                   {label}
                 </button>
               ))}
@@ -614,7 +640,7 @@ export default function NewPost() {
         <Section label="Caption">
           <textarea id="caption" name="caption" value={caption} onChange={e => setCaption(e.target.value)} rows={5} style={s.textarea} disabled={captionBusy} placeholder={captionBusy ? 'Writing caption from your video…' : 'Edit your caption…'} />
           <div style={s.charCount}>{caption.length} / 2200</div>
-          <RegenerateBar postId={result.postId} accountId={accountId} options={capOpts} onCaption={(c, h) => { setCaption(c); if (h && (capOpts.tosExact || capOpts.tosMustInclude)) setOnScreenText(h); }} />
+          <RegenerateBar postId={result.postId} accountId={accountId} options={capOpts} onCaption={(c, h, locked) => { setCaption(c); if (h && locked) setOnScreenText(h); }} />
         </Section>
 
         <Section label="Post to Instagram Account">
@@ -663,7 +689,13 @@ export default function NewPost() {
   return (
     <div>
       <h2 style={s.h2}>New Post</h2>
-      {error && <div style={s.errorBox}>{error}</div>}
+      {error && <div style={{ ...s.errorBox, whiteSpace: 'pre-line' }}>{error}</div>}
+      {step === STEPS.REVIEW && result?.guard && result.guard.level !== 'clear' && (
+        <div style={{ ...s.errorBox, whiteSpace: 'pre-line', borderColor: '#ef4444' }}>
+          <b>Won’t be posted: safety check</b>
+          {'\n' + (result.guard.reasons || []).map(r => '• ' + r).join('\n')}
+        </div>
+      )}
 
       <Section label="Page (optional — sets the caption style)">
         <select id="account-select" name="account_id" value={accountId} onChange={e => setAccountId(e.target.value)} style={s.select}>
