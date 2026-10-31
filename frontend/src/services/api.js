@@ -40,6 +40,7 @@ async function request(method, path, data, isForm = false, extraHeaders = {}) {
 // UI state (camelCase) -> API fields (snake_case). Empty values are omitted so bots/humans can skip any of them.
 function toApiOptions(o = {}) {
   const out = {};
+  if (o.brief?.trim())        out.brief = o.brief.trim();
   if (o.instructions?.trim()) out.instructions = o.instructions.trim();
   if (o.mustInclude?.trim())  out.must_include = o.mustInclude.trim();
   if (o.mentions?.trim())     out.mentions = o.mentions.trim();
@@ -110,7 +111,7 @@ export const api = {
   autopilotRetry:    (itemId) => request('POST', `/autopilot/item/${itemId}/retry`),
   autopilotRun:      (id) => request('POST', `/autopilot/${id}/run`),
   autopilotResume:   (id) => request('POST', `/autopilot/${id}/resume`),
-  cardPreview:   (account_id, text, scale, mode) => request('POST', '/content/card-preview', { account_id, text, scale, mode }),
+  cardPreview:   (account_id, text, scale, mode, theme) => request('POST', '/content/card-preview', { account_id, text, scale, mode, theme }),
   // Posts
   getPosts: (params = {}) => {
     const q = new URLSearchParams(params).toString();
