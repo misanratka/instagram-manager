@@ -105,6 +105,10 @@ async function initPostgres() {
     )
   `);
 
+  for (const c of ['guard_level TEXT', 'guard_reasons TEXT', 'guard_ack INTEGER DEFAULT 0', 'credit_handle TEXT']) {
+    await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
+  }
+
   adapter = {
     async get(sql, params = []) {
       const r = await pool.query(sql, params);
@@ -170,6 +174,10 @@ function initSQLite() {
       FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
     );
   `);
+
+  for (const c of ['guard_level TEXT', 'guard_reasons TEXT', 'guard_ack INTEGER DEFAULT 0', 'credit_handle TEXT']) {
+    try { sqlite.exec(`ALTER TABLE posts ADD COLUMN ${c}`); } catch { /* already there */ }
+  }
 
   // Autopilot (columns added with try/catch because SQLite has no ADD COLUMN IF NOT EXISTS)
   for (const [c, t] of [['ap_enabled', "INTEGER DEFAULT 0"], ['ap_per_day', "INTEGER DEFAULT 2"], ['ap_start_hour', "INTEGER DEFAULT 9"], ['ap_end_hour', "INTEGER DEFAULT 22"], ['ap_tz', "TEXT"], ['ap_layout', "TEXT DEFAULT 'card'"], ['ap_credit_line', "INTEGER DEFAULT 1"], ['ap_paused_reason', "TEXT"], ['ap_fail_streak', "INTEGER DEFAULT 0"]]) {
