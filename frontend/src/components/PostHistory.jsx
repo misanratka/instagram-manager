@@ -11,13 +11,15 @@ const STATUS = {
 
 const FILTERS = ['all', 'draft', 'publishing', 'scheduled', 'posted', 'failed'];
 
+let postsCache = null;   // last list seen, so re-opening the tab is instant
+
 export default function PostHistory() {
-  const [posts, setPosts]   = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts]   = useState(postsCache || []);
+  const [loading, setLoading] = useState(!postsCache);
   const [filter, setFilter]   = useState('all');
   const [removing, setRemoving] = useState(null);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(!!postsCache); }, []);
 
   useEffect(() => {
     const hasPublishing = posts.some(p => p.status === 'publishing');
@@ -28,7 +30,8 @@ export default function PostHistory() {
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
-    const data = await api.getPosts().catch(() => []);
+    const data = await api.getPosts().catch(() => postsCache || []);
+    postsCache = data;
     setPosts(data);
     setLoading(false);
   }
