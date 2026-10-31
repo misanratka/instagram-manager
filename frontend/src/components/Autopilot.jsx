@@ -184,7 +184,7 @@ function PageCard({ page, onChange }) {
           </Row>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#bbb', margin: '12px 0', cursor: 'pointer' }}>
             <input type="checkbox" checked={!!form.credit_line} onChange={e => setForm({ ...form, credit_line: e.target.checked })} style={{ accentColor: '#7b6fff', width: 16, height: 16 }} />
-            Add "Credits — DM for removal." to captions
+            Credit the source (@handle) in captions when one is found
           </label>
           <button type="button" onClick={save} disabled={working} style={st.primary}>Save settings</button>
           <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
