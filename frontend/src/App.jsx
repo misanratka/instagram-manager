@@ -1,8 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import NewPost from './components/NewPost';
-import PostHistory from './components/PostHistory';
-import AccountManager from './components/AccountManager';
-import Autopilot from './components/Autopilot';
+
+// Only the Create tab loads up front. The other tabs load in the background while you work,
+// so switching to them is instant instead of waiting for a download.
+const loadHistory   = () => import('./components/PostHistory');
+const loadAutopilot = () => import('./components/Autopilot');
+const loadAccounts  = () => import('./components/AccountManager');
+const PostHistory    = lazy(loadHistory);
+const Autopilot      = lazy(loadAutopilot);
+const AccountManager = lazy(loadAccounts);
+
+function TabFallback() {
+  return (
+    <div>
+      {[0, 1, 2].map(i => <div key={i} className="skeleton" style={{ height: 96, marginBottom: 12, animationDelay: `${i * 120}ms` }} />)}
+    </div>
+  );
+}
 
 const TABS = [
   { id: 'new', label: 'Create', icon: (active) => (
@@ -68,6 +82,14 @@ export default function App() {
       setChecking(false);
     }
   }, []);
+
+  // warm up the other tabs once the first screen is idle
+  useEffect(() => {
+    if (checking) return;
+    const warm = () => { loadHistory(); loadAutopilot(); loadAccounts(); };
+    const id = window.requestIdleCallback ? window.requestIdleCallback(warm, { timeout: 4000 }) : setTimeout(warm, 1500);
+    return () => { window.cancelIdleCallback ? window.cancelIdleCallback(id) : clearTimeout(id); };
+  }, [checking]);
 
   function handleLogout() {
     localStorage.removeItem('im_user');
@@ -138,9 +160,11 @@ export default function App() {
       <main style={s.main}>
         {/* NewPost stays mounted so in-progress work isn't lost when switching tabs */}
         <div className="tab-enter" style={{ display: tab === 'new' ? 'block' : 'none' }}><NewPost /></div>
-        {tab === 'history'  && <div key="history"  className="tab-enter"><PostHistory /></div>}
-        {tab === 'autopilot' && <div key="autopilot" className="tab-enter"><Autopilot /></div>}
-        {tab === 'accounts' && <div key="accounts" className="tab-enter"><AccountManager /></div>}
+        <Suspense fallback={<TabFallback />}>
+          {tab === 'history'  && <div key="history"  className="tab-enter"><PostHistory /></div>}
+          {tab === 'autopilot' && <div key="autopilot" className="tab-enter"><Autopilot /></div>}
+          {tab === 'accounts' && <div key="accounts" className="tab-enter"><AccountManager /></div>}
+        </Suspense>
       </main>
 
       {/* Bottom nav */}
@@ -148,7 +172,7 @@ export default function App() {
         {TABS.map(t => {
           const active = tab === t.id;
           return (
-            <button key={t.id} onClick={() => { setTab(t.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }} style={s.navBtn} aria-label={t.label}>
+            <button key={t.id} onClick={() => { if (tab !== t.id && navigator.vibrate) navigator.vibrate(8); setTab(t.id); window.scrollTo({ top: 0, behavior: 'smooth' }); }} style={s.navBtn} aria-label={t.label}>
               <div style={{ ...s.navIcon, position: 'relative', borderRadius: 14, transform: active ? 'translateY(-2px)' : 'none', transition: 'transform .3s cubic-bezier(.22,1,.36,1)' }}>
                 <span style={{ position: 'absolute', inset: 0, borderRadius: 14, background: 'linear-gradient(135deg,#e6356a,#a855f7)', boxShadow: '0 6px 18px rgba(230,53,106,.35)', opacity: active ? 1 : 0, transform: active ? 'scale(1)' : 'scale(.6)', transition: 'opacity .25s, transform .35s cubic-bezier(.34,1.56,.64,1)' }} />
                 <span style={{ position: 'relative', display: 'flex' }}>{t.icon(active)}</span>
