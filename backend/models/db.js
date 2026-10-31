@@ -105,7 +105,7 @@ async function initPostgres() {
     )
   `);
 
-  for (const c of ['guard_level TEXT', 'guard_reasons TEXT', 'guard_ack INTEGER DEFAULT 0', 'credit_handle TEXT']) {
+  for (const c of ['guard_level TEXT', 'guard_reasons TEXT', 'guard_ack INTEGER DEFAULT 0', 'credit_handle TEXT', 'ig_permalink TEXT']) {
     await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   }
 
@@ -175,7 +175,7 @@ function initSQLite() {
     );
   `);
 
-  for (const c of ['guard_level TEXT', 'guard_reasons TEXT', 'guard_ack INTEGER DEFAULT 0', 'credit_handle TEXT']) {
+  for (const c of ['guard_level TEXT', 'guard_reasons TEXT', 'guard_ack INTEGER DEFAULT 0', 'credit_handle TEXT', 'ig_permalink TEXT']) {
     try { sqlite.exec(`ALTER TABLE posts ADD COLUMN ${c}`); } catch { /* already there */ }
   }
 
