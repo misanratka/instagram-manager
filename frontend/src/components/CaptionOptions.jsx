@@ -34,7 +34,7 @@ export default function CaptionOptions({ value, onChange }) {
   ].filter(Boolean);
 
   return (
-    <div style={st.wrap}>
+    <div style={st.wrap} className="glass">
       <div style={st.head}>
         <span style={st.title}>Describe this post</span>
         <span style={st.count}>{brief.length}/{MAX}</span>
