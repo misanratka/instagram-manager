@@ -9,6 +9,7 @@ const { transcribeVideo, segmentsToSRT } = require('../services/transcription');
 const { generateContent, generateSubtitleLines } = require('../services/captionGenerator');
 const { enhanceVideo, detectContentRect } = require('../services/videoProcessor');
 const { renderCard } = require('../services/brandCard');
+const { assessClip, extractCredit } = require('../services/contentGuard');
 const logger = require('../services/logger');
 
 const router = express.Router();
@@ -18,6 +19,7 @@ const router = express.Router();
 function readCaptionOptions(body = {}, isRepost = false) {
   const credit = body.credit_line ?? body.creditLine;
   return {
+    brief:        body.brief,           // the one free-text note; split into the fields below by the caption writer
     instructions: body.instructions,
     mustInclude:  body.must_include ?? body.mustInclude,
     mentions:     body.mentions,
@@ -128,6 +130,11 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}, options =
     return { transcript, segments, srtContent, caption: '', hookText: '', onScreenSuggestions: [], captionSkipped: true, autoCrop };
   }
 
+  // Reposts: find the source credit, and run the safety check while the caption is being written
+  const isRepost = !!videoUrl;
+  const credit = isRepost ? extractCredit(meta, videoUrl) : null;
+  const guardP = assessClip({ videoPath, meta, url: videoUrl || '', isRepost, credit });
+
   const { caption, onScreenText } = await generateContent({
     videoPath,
     transcript,
@@ -135,10 +142,12 @@ async function processVideo(videoPath, videoUrl, accountId, meta = {}, options =
     videoTitle:      meta.title || '',
     captionStyle: account?.caption_style || 'casual',
     customPrompt: account?.caption_prompt,
-    options
+    options: { ...options, creditHandle: credit?.handle }
   });
 
-  return { transcript, segments, srtContent, caption, hookText: onScreenText, onScreenSuggestions: [], autoCrop };
+  const guard = await guardP;
+
+  return { transcript, segments, srtContent, caption, hookText: onScreenText, onScreenSuggestions: [], autoCrop, guard };
 }
 
 router.post('/process-url', heavy(async (req, res, next) => {
@@ -164,14 +173,15 @@ router.post('/process-url', heavy(async (req, res, next) => {
 
     const videoPath = videoFile ? videoFile.path : null;
 
-    const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions, captionSkipped, autoCrop } =
+    const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions, captionSkipped, autoCrop, guard } =
       await processVideo(videoPath, url, account_id, meta, readCaptionOptions(req.body, true));
 
     const postId = uuidv4();
     await getDB().run(
-      `INSERT INTO posts (id, account_id, video_url, local_video_path, original_caption, generated_caption, hook_text, subtitles_srt, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')`,
-      [postId, account_id || null, url, videoPath, meta.description || '', caption, hookText, srtContent]
+      `INSERT INTO posts (id, account_id, video_url, local_video_path, original_caption, generated_caption, hook_text, subtitles_srt, status, guard_level, guard_reasons, credit_handle)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11)`,
+      [postId, account_id || null, url, videoPath, meta.description || '', caption, hookText, srtContent,
+       guard?.level || null, guard ? JSON.stringify(guard.reasons || []) : null, guard?.credit?.handle || null]
     );
 
     res.json({
@@ -188,6 +198,7 @@ router.post('/process-url', heavy(async (req, res, next) => {
       downloadError: isInstagram && !videoFile ? downloadError : null,
       captionSkipped: !!captionSkipped,
       autoCrop: autoCrop || null,
+      guard: guard || null,
     });
   } catch (err) { next(err); }
 }));
@@ -199,22 +210,22 @@ router.post('/process-file', upload.single('video'), heavy(async (req, res, next
     const videoPath = req.file.path;
     const videoUrl = `/uploads/${req.file.filename}`;
 
-    const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions, autoCrop } =
+    const { transcript, segments, srtContent, caption, hookText, onScreenSuggestions, autoCrop, guard } =
       await processVideo(videoPath, null, account_id, {}, readCaptionOptions(req.body, false));
 
     const postId = uuidv4();
     await getDB().run(
-      `INSERT INTO posts (id, account_id, local_video_path, generated_caption, hook_text, subtitles_srt, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'draft')`,
-      [postId, account_id || null, videoPath, caption, hookText, srtContent]
+      `INSERT INTO posts (id, account_id, local_video_path, generated_caption, hook_text, subtitles_srt, status, guard_level, guard_reasons)
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8)`,
+      [postId, account_id || null, videoPath, caption, hookText, srtContent, guard?.level || null, guard ? JSON.stringify(guard.reasons || []) : null]
     );
 
-    res.json({ postId, videoUrl, transcript: transcript.substring(0, 600), generatedCaption: caption, hookText, srtContent, onScreenSuggestions, autoCrop: autoCrop || null });
+    res.json({ postId, videoUrl, transcript: transcript.substring(0, 600), generatedCaption: caption, hookText, srtContent, onScreenSuggestions, autoCrop: autoCrop || null, guard: guard || null });
   } catch (err) { next(err); }
 }));
 
 // Renders the page card to a temp PNG. Returns { brand } or { error, status }.
-async function buildBrandCard(req, accountId, text, dir, frame, mode, quality) {
+async function buildBrandCard(req, accountId, text, dir, frame, mode, quality, themeOverride) {
   const plain = mode === 'text';   // text only: same layout without the page branding
   const account = accountId ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [accountId]) : null;
   if (!account && !plain) return { status: 400, error: 'Pick a page first to use the card layout.' };
@@ -229,7 +240,7 @@ async function buildBrandCard(req, accountId, text, dir, frame, mode, quality) {
     verified: !!account?.brand_verified,
     avatar: account?.brand_avatar,
     text: t,
-    theme: account?.brand_theme || 'dark',
+    theme: (themeOverride === 'light' || themeOverride === 'dark') ? themeOverride : (account?.brand_theme || 'dark'),
     scale: frame?.cardScale
   });
   const cardPath = path.join(dir, `card_${uuidv4()}.png`);
@@ -240,7 +251,7 @@ async function buildBrandCard(req, accountId, text, dir, frame, mode, quality) {
 // Live preview of the card (PNG as a data URL) for the review screen
 router.post('/card-preview', async (req, res, next) => {
   try {
-    const { account_id, text, scale, mode } = req.body || {};
+    const { account_id, text, scale, mode, theme } = req.body || {};
     const plain = mode === 'text';
     const account = account_id ? await getDB().get('SELECT * FROM accounts WHERE id=$1', [account_id]) : null;
     if (!account && !plain) return res.status(400).json({ error: 'Pick a page first.' });
@@ -253,7 +264,7 @@ router.post('/card-preview', async (req, res, next) => {
       verified: !!account?.brand_verified,
       avatar: account?.brand_avatar,
       text: String(text || '').trim() || (plain ? '' : 'Your on-screen text appears here'),
-      theme: account?.brand_theme || 'dark',
+      theme: (theme === 'light' || theme === 'dark') ? theme : (account?.brand_theme || 'dark'),
       scale
     });
     res.json({ image: `data:image/png;base64,${card.buffer.toString('base64')}`, width: card.width, height: card.height, canvasColor: card.canvasColor });
@@ -281,7 +292,7 @@ router.post('/enhance/:postId', heavy(async (req, res, next) => {
     // Page card layout (card on top, video below). Name/handle fall back to the connected account's own.
     let brand = null;
     if (wantsCard) {
-      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame, brandCard.mode, brandCard.quality);
+      const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame, brandCard.mode, brandCard.quality, brandCard.theme);
       if (built.error) return res.status(built.status).json({ error: built.error });
       brand = built.brand;
     }
@@ -338,8 +349,8 @@ router.post('/regenerate/:postId', async (req, res, next) => {
     if (!videoPath && !(post.original_caption || '').trim() && !(post.subtitles_srt || '').trim())
       return res.status(400).json({ error: 'Nothing to write the caption from yet. Upload the video first.' });
 
-    const options = { ...readCaptionOptions(req.body, !!post.video_url), tweak: req.body.tweak };
-    const { caption, onScreenText } = await generateContent({
+    const options = { ...readCaptionOptions(req.body, !!post.video_url), tweak: req.body.tweak, creditHandle: post.credit_handle || undefined };
+    const { caption, onScreenText, tosLocked } = await generateContent({
       videoPath,
       transcript: srtToText(post.subtitles_srt),
       originalCaption: post.original_caption || '',
@@ -350,7 +361,7 @@ router.post('/regenerate/:postId', async (req, res, next) => {
     });
 
     await db.run('UPDATE posts SET generated_caption=$1 WHERE id=$2', [caption, post.id]);
-    res.json({ postId: post.id, generatedCaption: caption, hookText: onScreenText });
+    res.json({ postId: post.id, generatedCaption: caption, hookText: onScreenText, tosLocked: !!tosLocked });
   } catch (err) { next(err); }
 });
 
