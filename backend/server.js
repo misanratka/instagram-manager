@@ -15,6 +15,9 @@ const { startScheduler } = require('./services/scheduler');
 const { startAutopilot } = require('./services/autopilot');
 const logger = require('./services/logger');
 
+let compression = null;
+try { compression = require('compression'); } catch { /* optional: the server still starts without it */ }
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -23,6 +26,7 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',').map(o => o.trim());
+if (compression) app.use(compression());   // JS bundle + API JSON go out 3-4x smaller
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowedOrigins.some(o => origin.startsWith(o))), credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -43,10 +47,18 @@ app.get('/health', (req, res) =>
 );
 
 const publicDir = path.join(__dirname, 'public');
-app.use(express.static(publicDir));
+// Vite names build files by content (assets/index-abc123.js), so they can be cached for a year.
+// index.html is never cached, so a new deploy shows up on the next open.
+app.use(express.static(publicDir, {
+  setHeaders(res, filePath) {
+    if (/[\\/]assets[\\/]/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (/\.html$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 app.get('*', (req, res) => {
   const index = path.join(publicDir, 'index.html');
   if (fs.existsSync(index)) {
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(index);
   } else {
     res.status(503).send('Frontend not built. On Render: go to Settings -> change Dockerfile Path to <code>./Dockerfile</code> and Root Directory to <code>.</code> (repo root), then redeploy.');
