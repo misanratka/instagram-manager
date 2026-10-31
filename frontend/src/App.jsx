@@ -83,6 +83,53 @@ export default function App() {
     }
   }, []);
 
+  // 3D tilt: one listener for every element with class "tilt" (cards). Tilts toward the finger/cursor and moves a light across it.
+  useEffect(() => {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let cur = null, raf = 0;
+    const reset = () => {
+      if (!cur) return;
+      cur.classList.remove('tilting');
+      cur.style.setProperty('--rx', '0deg'); cur.style.setProperty('--ry', '0deg'); cur.style.setProperty('--glow', '0');
+      cur = null;
+    };
+    const onMove = (e) => {
+      const el = e.target && e.target.closest ? e.target.closest('.tilt') : null;
+      if (!el || e.target.closest('input,textarea,select,[contenteditable]')) return reset();
+      if (cur && cur !== el) reset();
+      cur = el;
+      const cx = e.clientX, cy = e.clientY;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (!cur) return;
+        const r = cur.getBoundingClientRect();
+        const x = cx - r.left, y = cy - r.top;
+        cur.classList.add('tilting');
+        cur.style.setProperty('--ry', ((x / r.width - 0.5) * 2 * 6).toFixed(2) + 'deg');
+        cur.style.setProperty('--rx', (-(y / r.height - 0.5) * 2 * 6).toFixed(2) + 'deg');
+        cur.style.setProperty('--mx', x.toFixed(0) + 'px');
+        cur.style.setProperty('--my', y.toFixed(0) + 'px');
+        cur.style.setProperty('--glow', '1');
+      });
+    };
+    document.addEventListener('pointermove', onMove, { passive: true });
+    document.addEventListener('pointerdown', onMove, { passive: true });
+    document.addEventListener('pointerup', reset, { passive: true });
+    document.addEventListener('pointercancel', reset, { passive: true });
+    document.addEventListener('pointerleave', reset);
+    window.addEventListener('scroll', reset, { passive: true });
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerdown', onMove);
+      document.removeEventListener('pointerup', reset);
+      document.removeEventListener('pointercancel', reset);
+      document.removeEventListener('pointerleave', reset);
+      window.removeEventListener('scroll', reset);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
   // warm up the other tabs once the first screen is idle
   useEffect(() => {
     if (checking) return;
@@ -110,7 +157,7 @@ export default function App() {
       {/* Header */}
       <header style={s.header}>
         <div style={s.logo}>
-          <div style={s.logoMark}>
+          <div style={s.logoMark} className="float">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#g1)"/>
               <circle cx="12" cy="12" r="4.5" stroke="#fff" strokeWidth="2"/>
@@ -168,7 +215,7 @@ export default function App() {
       </main>
 
       {/* Bottom nav */}
-      <nav style={s.nav}>
+      <nav style={s.nav} className="dock">
         {TABS.map(t => {
           const active = tab === t.id;
           return (
@@ -187,8 +234,8 @@ export default function App() {
 }
 
 const s = {
-  root:       { minHeight: '100dvh', background: '#080A0F', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif', paddingBottom: 80, overflowX: 'hidden', width: '100%', maxWidth: '100vw' },
-  header:     { height: 56, padding: '0 20px', background: 'rgba(8,10,15,0.9)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 },
+  root:       { minHeight: '100dvh', background: '#080A0F', display: 'flex', flexDirection: 'column', fontFamily: '-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif', paddingBottom: 108, overflowX: 'hidden', width: '100%', maxWidth: '100vw' },
+  header:     { height: 56, padding: '0 16px', margin: '10px 12px 0', borderRadius: 20, background: 'rgba(16,18,26,0.72)', backdropFilter: 'blur(18px) saturate(140%)', WebkitBackdropFilter: 'blur(18px) saturate(140%)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 14px 34px -16px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 10, zIndex: 100 },
   logo:       { display: 'flex', alignItems: 'center', gap: 10 },
   logoMark:   { width: 34, height: 34, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' },
   logoText:   { fontWeight: 700, fontSize: 17, color: '#fff', letterSpacing: '-0.3px' },
@@ -202,7 +249,7 @@ const s = {
   menuLogout: { width: '100%', padding: '12px 16px', background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 500 },
   overlay:    { position: 'fixed', inset: 0, zIndex: 150 },
   main:       { flex: 1, maxWidth: 600, margin: '0 auto', width: '100%', padding: '16px 16px 16px', overflowX: 'hidden' },
-  nav:        { position: 'fixed', bottom: 0, left: 0, right: 0, height: 72, background: 'rgba(8,10,15,0.95)', backdropFilter: 'blur(30px)', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom,0px)' },
+  nav:        { position: 'fixed', left: 12, right: 12, bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))', maxWidth: 560, margin: '0 auto', height: 68, borderRadius: 26, background: 'rgba(16,18,26,0.74)', backdropFilter: 'blur(24px) saturate(150%)', WebkitBackdropFilter: 'blur(24px) saturate(150%)', boxShadow: '0 20px 44px -14px rgba(0,0,0,.85), 0 0 46px -12px rgba(168,85,247,.4), inset 0 1px 0 rgba(255,255,255,.09)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100 },
   navBtn:     { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 0' },
   navIcon:    { width: 44, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   navLabel:   { fontSize: 10, fontWeight: 600, letterSpacing: '0.3px', transition: 'color 0.2s', textTransform: 'uppercase' },
