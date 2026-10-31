@@ -120,4 +120,5 @@ export const api = {
   publishPost: (id, data = {}) => request('POST', `/posts/${id}/publish`, data),
   schedulePost:(id, data)      => request('POST', `/posts/${id}/schedule`, data),
   deletePost:  (id)            => request('DELETE', `/posts/${id}`),
+  getPostLink: (id)            => request('POST', `/posts/${id}/link`),
 };
