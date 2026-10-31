@@ -77,7 +77,7 @@ async function detectBarsRect(videoPath) {
 }
 
 // Up to `count` small JPEG frames spread through the video. Only key frames are decoded, so this is quick even on a slow CPU.
-async function extractFrames(videoPath, count = 6) {
+async function extractFramesRaw(videoPath, count = 6) {
   const dir = fs.mkdtempSync(path.join(getUploadDir(), 'frames_'));
   try {
     const args = ['-hide_banner', '-loglevel', 'error', '-skip_frame', 'nokey', '-i', videoPath,
@@ -88,6 +88,20 @@ async function extractFrames(videoPath, count = 6) {
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+}
+
+// Same clip + same count within a few minutes = one ffmpeg run (the caption writer and the safety check ask at the same time)
+const frameCache = new Map();
+function extractFrames(videoPath, count = 6) {
+  let key = `${videoPath}|${count}`;
+  try { const st = fs.statSync(videoPath); key += `|${st.size}|${Math.floor(st.mtimeMs)}`; } catch { /* let ffmpeg report it */ }
+  if (!frameCache.has(key)) {
+    const p = extractFramesRaw(videoPath, count);
+    frameCache.set(key, p);
+    p.catch(() => frameCache.delete(key));
+    const t = setTimeout(() => frameCache.delete(key), 3 * 60 * 1000); if (t.unref) t.unref();
+  }
+  return frameCache.get(key);
 }
 
 // ── Find the real video inside a "template" reel ─────────────────────────────────────────────
