@@ -5,6 +5,7 @@ const { getDB } = require('../models/db');
 const { postReel } = require('./instagramPoster');
 const { postReelWithBrowser } = require('./instagramWebPoster');
 const logger = require('./logger');
+const { gateDecision } = require('./contentGuard');
 
 const activePostJobs = new Set();
 const activeAccountJobs = new Set();
@@ -73,6 +74,14 @@ cron.schedule('*/10 * * * *', async () => {
 
       const locked = await db.get('SELECT status FROM posts WHERE id=$1', [post.id]);
       if (!locked || locked.status !== 'publishing') continue;
+
+      // Safety gate: blocked, or review not confirmed → never auto-post
+      const gate = gateDecision(post, {});
+      if (gate?.error) {
+        await db.run(`UPDATE posts SET status='failed', error_message=$1 WHERE id=$2`, [gate.error, post.id]);
+        logger.warn(`Scheduler held post ${post.id}: ${gate.error}`);
+        continue;
+      }
 
       activePostJobs.add(post.id);
       activeAccountJobs.add(accountKey);
