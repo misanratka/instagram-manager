@@ -41,19 +41,15 @@ const MED_RE = MEDIUM_TERMS.map(t => [t, termRe(t)]);
 function levelFor(score) { return score >= BLOCK_AT ? 'blocked' : 'clear'; }
 
 // ── credit detection ─────────────────────────────────────────────────────────
-const CREDIT_RE = /(?:credits?|cr|via|source|video by|clip by|filmed by|footage by|from|courtesy of|dc|📹|🎥|🎬|©)\s*[:\-–—]?\s*@([A-Za-z0-9._]{2,30})/i;
-const IG_DESC_HANDLE = /[-–—]\s+@?([A-Za-z0-9._]{2,30})\s+on\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}/;
+// Credit is added ONLY when the source caption itself credits someone ("📹 @x", "credit: @x", "via @x", "video by @x"...).
+// The account the clip was taken from is never used as a credit.
+const CREDIT_RE = /(?:^|[\s(\[|•·\-–—])(?:credits?|cr|via|source|video by|clip by|filmed by|footage by|courtesy of|dc|📹|🎥|🎬|©)\s*[:\-–—]?\s*@([A-Za-z0-9._]{2,30})/i;
 
-/** The handle to credit for a reposted clip. Prefers a credit written in the source caption, then the posting account. */
-function extractCredit(meta = {}, url = '') {
+/** The handle credited inside the source caption, or null. */
+function extractCredit(meta = {}) {
   const text = [meta.description, meta.title].filter(Boolean).join('\n');
   const c = text.match(CREDIT_RE);
-  if (c) return { handle: c[1].replace(/\.+$/, ''), via: 'caption' };
-  const d = String(meta.description || '').match(IG_DESC_HANDLE);
-  if (d) return { handle: d[1].replace(/\.+$/, ''), via: 'source' };
-  const u = String(meta.uploader_id || '').replace(/^@/, '');
-  if (/^[A-Za-z0-9._]{2,30}$/.test(u)) return { handle: u, via: 'source' };
-  return null;
+  return c ? { handle: c[1].replace(/\.+$/, ''), via: 'caption' } : null;
 }
 
 // ── metadata signals ─────────────────────────────────────────────────────────
