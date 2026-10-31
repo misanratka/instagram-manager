@@ -33,13 +33,73 @@
         text-size-adjust: 100%;
       }
 
-      /* soft ambient glow behind everything (static, so it costs nothing while scrolling) */
+      /* ---- Floating light: two layers of soft colour that drift slowly (transform only = smooth, cheap) ---- */
+      body::before, body::after { content: ''; position: fixed; inset: -25%; z-index: 0; pointer-events: none; will-change: transform; }
       body::before {
-        content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
         background:
-          radial-gradient(60% 40% at 15% -5%, rgba(230,53,106,.14), transparent 70%),
-          radial-gradient(55% 40% at 95% 0%, rgba(168,85,247,.13), transparent 70%);
+          radial-gradient(34% 28% at 22% 16%, rgba(230,53,106,.36), transparent 70%),
+          radial-gradient(30% 26% at 82% 22%, rgba(168,85,247,.36), transparent 70%);
+        animation: drift1 28s ease-in-out infinite alternate;
       }
+      body::after {
+        background:
+          radial-gradient(36% 30% at 72% 84%, rgba(56,189,248,.22), transparent 70%),
+          radial-gradient(28% 26% at 12% 78%, rgba(249,115,22,.20), transparent 70%);
+        animation: drift2 34s ease-in-out infinite alternate;
+      }
+      @keyframes drift1 { from { transform: translate3d(-3%, -2%, 0) scale(1); } to { transform: translate3d(4%, 6%, 0) scale(1.1); } }
+      @keyframes drift2 { from { transform: translate3d(3%, 3%, 0) scale(1.05); } to { transform: translate3d(-5%, -4%, 0) scale(.95); } }
+      @keyframes bob    { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+      @keyframes sweep  { 0%,55% { transform: translateX(-130%) skewX(-18deg); } 100% { transform: translateX(260%) skewX(-18deg); } }
+      @property --ang { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+      @keyframes spinAng { to { --ang: 360deg; } }
+
+      /* ---- 3D tilt + light that follows your finger/cursor (class "tilt", driven by one listener in App.jsx) ---- */
+      .tilt {
+        position: relative;
+        transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+        transition: transform .5s var(--ease), box-shadow .3s, border-color .3s;
+        will-change: transform;
+      }
+      .tilt.tilting { transition: transform .08s linear, box-shadow .3s, border-color .3s; }
+      .tilt.fade-up { animation-fill-mode: backwards; }   /* so the entrance animation doesn't lock the transform */
+      .tilt.removing { transform: translateX(24px) scale(.96); }
+      .tilt::after {
+        content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+        opacity: var(--glow, 0); transition: opacity .3s;
+        background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 0%), rgba(255,255,255,.13), transparent 65%);
+      }
+      @media (hover: hover) {
+        .tilt.card-hover:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); }
+      }
+
+      /* ---- Glass surface: soft light gradient, bright top edge, deep shadow ---- */
+      .glass {
+        background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.018)) !important;
+        border-color: rgba(255,255,255,.09) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 22px 44px -24px rgba(0,0,0,.85);
+      }
+
+      /* ---- Main buttons: glow + a light sweep that passes across every few seconds ---- */
+      .shine { position: relative; overflow: hidden; box-shadow: 0 10px 28px -8px rgba(230,53,106,.55), inset 0 1px 0 rgba(255,255,255,.25); }
+      .shine:disabled { box-shadow: none; }
+      .shine::after {
+        content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 60%; pointer-events: none;
+        background: linear-gradient(105deg, transparent, rgba(255,255,255,.34), transparent);
+        transform: translateX(-130%) skewX(-18deg); animation: sweep 4.2s ease-in-out infinite;
+      }
+      .shine:disabled::after { display: none; }
+
+      /* ---- Floating bottom dock: gentle float + a light that travels around its edge ---- */
+      .dock { animation: bob 6s ease-in-out infinite; }
+      .dock::before {
+        content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+        background: conic-gradient(from var(--ang), transparent 0 62%, rgba(230,53,106,.95) 78%, rgba(168,85,247,.95) 90%, transparent 100%);
+        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor; mask-composite: exclude;
+        animation: spinAng 7s linear infinite;
+      }
+      .float { animation: bob 4.5s ease-in-out infinite; }
 
       #root {
         position: relative; z-index: 1;
