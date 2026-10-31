@@ -94,7 +94,7 @@ function PageCard({ page, onChange }) {
   const status = page.paused ? 'paused' : page.enabled ? 'on' : 'off';
 
   return (
-    <div style={st.card}>
+    <div style={st.card} className="glass">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{page.name}</div>
@@ -127,7 +127,7 @@ function PageCard({ page, onChange }) {
       <textarea value={links} onChange={e => setLinks(e.target.value)} rows={3} id={`ap-links-${page.id}`} name="links"
         placeholder={'Paste links, one per line'} style={{ ...st.input, marginTop: 12, resize: 'vertical' }} />
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <button type="button" onClick={add} disabled={working || !links.trim()} style={{ ...st.primary, opacity: working || !links.trim() ? 0.4 : 1 }}>Add to queue</button>
+        <button type="button" onClick={add} disabled={working || !links.trim()} className="shine" style={{ ...st.primary, opacity: working || !links.trim() ? 0.4 : 1 }}>Add to queue</button>
         <button type="button" onClick={() => run(() => api.autopilotRun(page.id), r => r.message)} disabled={working || page.queue.queued === 0} style={{ ...st.ghost, opacity: page.queue.queued === 0 ? 0.4 : 1 }}>Post next now</button>
       </div>
       {msg && <div style={{ fontSize: 12, color: '#7bd88f', marginTop: 8 }}>{msg}</div>}
@@ -186,7 +186,7 @@ function PageCard({ page, onChange }) {
             <input type="checkbox" checked={!!form.credit_line} onChange={e => setForm({ ...form, credit_line: e.target.checked })} style={{ accentColor: '#7b6fff', width: 16, height: 16 }} />
             Credit the source (@handle) in captions when one is found
           </label>
-          <button type="button" onClick={save} disabled={working} style={st.primary}>Save settings</button>
+          <button type="button" onClick={save} disabled={working} className="shine" style={st.primary}>Save settings</button>
           <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
             Posts are spread evenly between the two times, a few minutes off each day so they don't look robotic. Captions use this page's saved style, and the on-screen text and card are made automatically.
           </div>
@@ -216,7 +216,7 @@ const st = {
   card:    { background: '#0e0e0e', border: '1px solid #1c1c1c', borderRadius: 14, padding: 16, marginBottom: 14 },
   input:   { width: '100%', padding: '10px 12px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
   select:  { padding: '9px 10px', background: '#111', border: '1px solid #252525', borderRadius: 8, color: '#fff', fontSize: 13 },
-  primary: { flex: 1, padding: '11px 14px', background: '#7b6fff', border: 'none', borderRadius: 10, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' },
+  primary: { flex: 1, padding: '11px 14px', background: 'linear-gradient(135deg,#e6356a,#a855f7)', border: 'none', borderRadius: 10, color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' },
   ghost:   { flex: 1, padding: '11px 14px', background: '#111', border: '1px solid #2a2a2a', borderRadius: 10, color: '#ccc', fontWeight: 600, fontSize: 14, cursor: 'pointer' },
   mini:    { padding: '4px 10px', background: '#151515', border: '1px solid #2a2a2a', borderRadius: 6, color: '#bbb', fontSize: 12, cursor: 'pointer' },
   link:    { background: 'transparent', border: 'none', color: '#8a8a8a', fontSize: 12, cursor: 'pointer', padding: 0 },
