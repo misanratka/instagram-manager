@@ -12,6 +12,7 @@ const STATUS = {
 const FILTERS = ['all', 'draft', 'publishing', 'scheduled', 'posted', 'failed'];
 
 let postsCache = null;   // last list seen, so re-opening the tab is instant
+const linkTried = new Set();   // posts whose link we already asked Instagram for this session
 
 export default function PostHistory() {
   const [posts, setPosts]   = useState(postsCache || []);
@@ -27,6 +28,28 @@ export default function PostHistory() {
     const t = setTimeout(() => load(true), 5000);
     return () => clearTimeout(t);
   }, [posts]);
+
+  // fill in links for posted items that don't have one yet (older posts), a few at a time
+  useEffect(() => {
+    const missing = posts.filter(p => p.status === 'posted' && p.ig_media_id && !p.ig_permalink && !linkTried.has(p.id)).slice(0, 12);
+    if (!missing.length) return;
+    missing.forEach(p => linkTried.add(p.id));
+    (async () => {
+      const found = {};
+      for (const p of missing) {
+        const r = await api.getPostLink(p.id).catch(() => null);
+        if (r?.link) found[p.id] = r.link;
+      }
+      if (Object.keys(found).length) setPosts(prev => { const next = prev.map(p => found[p.id] ? { ...p, ig_permalink: found[p.id] } : p); postsCache = next; return next; });
+    })();
+  }, [posts]);
+
+  const [copied, setCopied] = useState(null);
+  function copyLink(id, link) {
+    (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).catch(() => {}).finally(() => {
+      setCopied(id); setTimeout(() => setCopied(c => (c === id ? null : c)), 1500);
+    });
+  }
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -113,6 +136,14 @@ export default function PostHistory() {
                 </div>
               )}
 
+              {/* Link to the live post */}
+              {post.status === 'posted' && post.ig_permalink && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <a href={post.ig_permalink} target="_blank" rel="noopener noreferrer" style={s.linkBtn}>View on Instagram ↗</a>
+                  <button type="button" onClick={() => copyLink(post.id, post.ig_permalink)} style={s.copyBtn}>{copied === post.id ? '✓ Copied' : 'Copy link'}</button>
+                </div>
+              )}
+
               {/* Scheduled */}
               {post.scheduled_at && post.status === 'scheduled' && (
                 <div style={{ ...s.metaRow, color: '#f59e0b' }}>
@@ -154,6 +185,8 @@ const s = {
   emptyText:   { color: '#fff', fontSize: 17, fontWeight: 600, margin: '0 0 6px' },
   emptyHint:   { color: '#555', fontSize: 14, margin: 0 },
   list:        { display: 'flex', flexDirection: 'column', gap: 12 },
+  linkBtn:     { flex: 1, textAlign: 'center', textDecoration: 'none', padding: '10px 12px', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg,#e6356a,#a855f7)' },
+  copyBtn:     { padding: '10px 14px', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#ccc', background: '#161616', border: '1px solid #2a2a2a', cursor: 'pointer', whiteSpace: 'nowrap' },
   card:        { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '16px', backdropFilter: 'blur(10px)' },
   cardTop:     { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
   statusBadge: { fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '4px 10px' },
