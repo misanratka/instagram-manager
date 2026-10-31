@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { getDB } = require('../models/db');
-const { postReel, verifyPublishingAccess, tokenFingerprint } = require('../services/instagramPoster');
+const { postReel, verifyPublishingAccess, tokenFingerprint, getPermalink } = require('../services/instagramPoster');
 const { postReelWithBrowser } = require('../services/instagramWebPoster');
 const logger = require('../services/logger');
 const { gateDecision } = require('../services/contentGuard');
@@ -145,10 +145,13 @@ router.post('/:id/publish', async (req, res, next) => {
         }, localVideoPath, finalCaption, { postId: post.id, accountId: accountKey }).then(() => null);
 
     publishPromise
-      .then(mediaId => db.run(
-        `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, error_message=NULL WHERE id=$3`,
-        [new Date().toISOString(), mediaId, post.id]
-      ))
+      .then(async mediaId => {
+        const link = await getPermalink(mediaId, post.access_token);   // best effort; the Posts tab fills it in later if Instagram wasn't ready
+        await db.run(
+          `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, ig_permalink=$3, error_message=NULL WHERE id=$4`,
+          [new Date().toISOString(), mediaId, link, post.id]
+        );
+      })
       .then(() => logger.info(`Manual publish completed for post ${post.id}`))
       .catch(err => {
         const igErr = err.response?.data?.error;
@@ -193,6 +196,25 @@ router.post('/:id/schedule', async (req, res, next) => {
     await db.run(`UPDATE posts SET status='scheduled', scheduled_at=$1, error_message=NULL WHERE id=$2`, [scheduled_at, postId]);
     logger.info(`Post scheduled: ${postId}`, { scheduledAt: scheduled_at });
     res.json({ message: 'Post scheduled', scheduled_at });
+  } catch (err) { next(err); }
+});
+
+// Link to the live Instagram post. Looked up from Instagram once, then saved.
+router.post('/:id/link', async (req, res, next) => {
+  try {
+    const db = getDB();
+    const post = await db.get(
+      `SELECT p.id, p.status, p.ig_media_id, p.ig_permalink, a.access_token
+       FROM posts p JOIN accounts a ON p.account_id = a.id
+       WHERE p.id=$1 AND a.user_id=$2`,
+      [req.params.id, req.headers['x-user-id']]
+    );
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (post.ig_permalink) return res.json({ link: post.ig_permalink });
+    if (post.status !== 'posted' || !post.ig_media_id) return res.json({ link: null });
+    const link = await getPermalink(post.ig_media_id, post.access_token);
+    if (link) await db.run('UPDATE posts SET ig_permalink=$1 WHERE id=$2', [link, post.id]);
+    res.json({ link });
   } catch (err) { next(err); }
 });
 
