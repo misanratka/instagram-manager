@@ -57,8 +57,8 @@ ${NICHE_GUIDES}
 You MUST follow this EXACT structure for every video, no exceptions:
 
 1. TEXT-ON-SCREEN (TOS)
-• ONE short line, 8–14 words max, plus exactly 2 emojis
-• Formula: [relatable scenario or high-stakes premise] + [punchline or ultimate outcome] + [2 emojis]
+• ONE short line, 8–14 words max, plus exactly 1 emoji (never 2, never 0), the one that fits the moment best
+• Formula: [relatable scenario or high-stakes premise] + [punchline or ultimate outcome] + [1 emoji]
 • Must create curiosity or trigger an emotional reaction (humor, nostalgia, awe, relatable truth) and stop the scroll
 • The TOS must be built from the clip's CORE MOMENT (what really happens in these frames). It sharpens the clip's meaning and never replaces or contradicts it; a viewer should get the clip's point from the TOS alone
 • Test: if this TOS could sit on a different video, rewrite it. No random memes, no generic lines like "Wait for it" on their own, and never claim anything the clip does not show
@@ -511,6 +511,13 @@ async function applyBrief(raw = {}) {
   };
 }
 
+// On-screen text carries exactly one emoji; extra ones are dropped (the first stays).
+const EMOJI_RE = /(?:\p{Regional_Indicator}{2}|[0-9#*]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu;
+function limitToOneEmoji(text) {
+  let seen = 0;
+  return String(text || '').replace(EMOJI_RE, (m) => (++seen === 1 ? m : '')).replace(/[ \t]{2,}/g, ' ').replace(/\s+([!?.,])/g, '$1').trim();
+}
+
 async function generateContent(args) {
   const o = sanitizeOptions(await applyBrief(args.options));
   let res = await generateContentInner(args, o);
@@ -522,7 +529,8 @@ async function generateContent(args) {
   }
   if (o.tosExact) res.onScreenText = o.tosExact;
   else if (o.tosMustInclude.length && !res.onScreenText) res.onScreenText = o.tosMustInclude.join(' ');
-  res.tosLocked = !!(o.tosExact || o.tosMustInclude.length);   // the UI only overwrites edited on-screen text when it was set by the note
+  res.tosLocked = !!(o.tosExact || o.tosMustInclude.length);
+  if (!res.tosLocked && res.onScreenText) res.onScreenText = limitToOneEmoji(res.onScreenText);   // the UI only overwrites edited on-screen text when it was set by the note
   return res;
 }
 
