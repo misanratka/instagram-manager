@@ -58,6 +58,7 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_verified INTEGER DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_avatar TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_theme TEXT DEFAULT 'dark'`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ig_avatar TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_enabled INTEGER DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_per_day INTEGER DEFAULT 2`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_start_hour INTEGER DEFAULT 9`).catch(() => {});
@@ -180,7 +181,7 @@ function initSQLite() {
   }
 
   // Autopilot (columns added with try/catch because SQLite has no ADD COLUMN IF NOT EXISTS)
-  for (const [c, t] of [['ap_enabled', "INTEGER DEFAULT 0"], ['ap_per_day', "INTEGER DEFAULT 2"], ['ap_start_hour', "INTEGER DEFAULT 9"], ['ap_end_hour', "INTEGER DEFAULT 22"], ['ap_tz', "TEXT"], ['ap_layout', "TEXT DEFAULT 'card'"], ['ap_credit_line', "INTEGER DEFAULT 1"], ['ap_paused_reason', "TEXT"], ['ap_fail_streak', "INTEGER DEFAULT 0"]]) {
+  for (const [c, t] of [['ap_enabled', "INTEGER DEFAULT 0"], ['ap_per_day', "INTEGER DEFAULT 2"], ['ap_start_hour', "INTEGER DEFAULT 9"], ['ap_end_hour', "INTEGER DEFAULT 22"], ['ap_tz', "TEXT"], ['ap_layout', "TEXT DEFAULT 'card'"], ['ap_credit_line', "INTEGER DEFAULT 1"], ['ap_paused_reason', "TEXT"], ['ap_fail_streak', "INTEGER DEFAULT 0"], ['ig_avatar', "TEXT"]]) {
     try { sqlite.exec(`ALTER TABLE accounts ADD COLUMN ${c} ${t}`); } catch { /* already there */ }
   }
   sqlite.exec(`
