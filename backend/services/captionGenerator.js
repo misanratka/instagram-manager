@@ -46,8 +46,6 @@ NICHE VOICE CALIBRATION (auto-detect which niche this content belongs to, then w
 If the content doesn't clearly match one niche, blend the closest two rather than defaulting to generic.
 `;
 
-const CREDIT_LINE = 'Credits — DM for removal.';
-
 const PROMPT_HEAD = `You are an elite ghostwriter running top-performing FACELESS Instagram pages across entertainment niches (movies, pop culture, music, memes, concerts, viral clips, streamers, podcasts, wealth/luxury, cars, and similar).
 
 Your job is NOT to describe the clip frame by frame. Write the page's own original take on it, like a real person running the account who watched it and has something to say. Two captions for the same clip should never read the same way twice.
@@ -62,6 +60,9 @@ You MUST follow this EXACT structure for every video, no exceptions:
 • ONE short line, 8–14 words max, plus exactly 2 emojis
 • Formula: [relatable scenario or high-stakes premise] + [punchline or ultimate outcome] + [2 emojis]
 • Must create curiosity or trigger an emotional reaction (humor, nostalgia, awe, relatable truth) and stop the scroll
+• The TOS must be built from the clip's CORE MOMENT (what really happens in these frames). It sharpens the clip's meaning and never replaces or contradicts it; a viewer should get the clip's point from the TOS alone
+• Test: if this TOS could sit on a different video, rewrite it. No random memes, no generic lines like "Wait for it" on their own, and never claim anything the clip does not show
+• The caption must expand the SAME idea as the TOS, not a different angle
 
 2. CAPTION PARAGRAPH 1 — THE HOOK & CONTEXT
 • 2–3 sentences
@@ -76,6 +77,13 @@ You MUST follow this EXACT structure for every video, no exceptions:
 4. CAPTION PARAGRAPH 3 — CALL TO ACTION
 • 2 sentences
 • A low-friction, open-ended question related to the topic that drives comments, plus a short action line (e.g. "Let us know below! 👇")
+
+`;
+
+const PROMPT_SOURCE = `SOURCE RULES:
+• The video title, original post caption and transcript are BACKGROUND FACTS only
+• NEVER mention who posted the clip, which account or page it came from, where it was found, or that it "went viral" / "blew up" elsewhere. No "posted by", "via", "originally from", "reposted", "credit to"
+• Write about what happens in the clip and why it matters, as the page's own commentary. Do not write any credit line; credit is added separately
 
 `;
 
@@ -98,15 +106,13 @@ const PROMPT_OPTIONS = `POST-SPECIFIC OPTIONS:
 function buildSystemPrompt({ creditLine, aiHashtags }) {
   let n = 5;
   const parts = [PROMPT_HEAD];
-  if (creditLine) parts.push(`${n++}. CREDIT LINE\n• Exactly this line: ${CREDIT_LINE}\n\n`);
   if (aiHashtags) {
     parts.push(`${n++}. HASHTAGS\n• Exactly 5 to 7 hashtags on ONE line\n• 2 broad category tags + 2 specific topic tags + 2 entity/name tags (add one extra only if clearly relevant)\n\n`);
   } else {
     parts.push('NO HASHTAGS: do not include any hashtag (#) anywhere in the output.\n\n');
   }
-  parts.push(PROMPT_MENTIONS, PROMPT_OPTIONS, '\n\n');
+  parts.push(PROMPT_SOURCE, PROMPT_MENTIONS, PROMPT_OPTIONS, '\n\n');
   parts.push('OUTPUT FORMAT — return exactly this, with one blank line between each block, no labels, no headings, no bullet points, no explanations, no multiple options:\n\n[TOS line]\n\n[Paragraph 1]\n\n[Paragraph 2]\n\n[Paragraph 3]');
-  if (creditLine) parts.push(`\n\n${CREDIT_LINE}`);
   if (aiHashtags) parts.push('\n\n[#hashtags on one line]');
   return parts.join('');
 }
@@ -157,6 +163,7 @@ function sanitizeOptions(raw = {}) {
     hashtags: hashtags.slice(0, 15).map(t => `#${t}`),
     aiHashtags: toBool(raw.aiHashtags, false),
     creditLine: toBool(raw.creditLine, true),
+    creditHandle: String(raw.creditHandle || '').replace(/[^A-Za-z0-9._]/g, '').slice(0, 30),
     tosExact: String(raw.tosExact || '').trim().slice(0, 280),
     tosMustInclude: toList(raw.tosMustInclude, /\n+/).map(t => t.slice(0, 120)).slice(0, 3)
   };
@@ -242,7 +249,7 @@ function normalizeCaption(caption, allowed, o) {
   // Remove any credit line variants (re-added below only if wanted)
   text = text
     .split('\n')
-    .filter(line => !/^\s*credits?\b.*dm for removal/i.test(line))
+    .filter(line => !/^\s*credits?\b.*(dm for removal|dm for credit)/i.test(line) && !/dm (us )?for (credit|removal)/i.test(line))
     .join('\n')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -263,7 +270,7 @@ function normalizeCaption(caption, allowed, o) {
     !new RegExp(`(?<![\\w.])@${escapeRe(h)}(?![A-Za-z0-9_]|\\.[A-Za-z0-9_])`, 'i').test(joined));
   if (missingMentions.length) parts.push(missingMentions.map(h => `@${h}`).join(' '));
 
-  if (o.creditLine) parts.push(CREDIT_LINE);
+  if (o.creditLine && o.creditHandle) parts.push(`📹 @${o.creditHandle}`);
 
   const tags = [];
   const addTag = (t) => { if (!tags.some(x => x.toLowerCase() === t.toLowerCase())) tags.push(t); };
@@ -301,23 +308,72 @@ function parseResponse(raw, allowed, o) {
 
 // Fast path: send a few small frames from the video instead of uploading the whole file to Gemini
 // (no upload, no waiting for Gemini to process the video). GEMINI_VIDEO_MODE=upload brings the old behaviour back.
+async function geminiJson(model, parts) {
+  const r = await model.generateContent(parts);
+  const m = r.response.text().replace(/```json|```/g, '').match(/\{[\s\S]*\}/);
+  return m ? JSON.parse(m[0]) : null;
+}
+
+// Step 1: what does the clip actually show? The TOS is built from this, so it can't drift off-topic.
+async function understandClip(model, frames, { videoTitle, transcript }) {
+  try {
+    const j = await geminiJson(model, [
+      ...frames.map(data => ({ inlineData: { mimeType: 'image/jpeg', data } })),
+      { text: `These are ${frames.length} frames in order from one video.${videoTitle ? ` Title (background, may be wrong): ${videoTitle}.` : ''}${transcript ? ` Transcript: ${transcript.substring(0, 800)}.` : ''}\nDescribe ONLY what is visible or said; do not guess names or facts. Return ONLY JSON: {"what_happens":"one plain sentence","core_moment":"the one beat that makes this clip worth watching","tone":"funny|shocking|emotional|hype|informative"}` }
+    ]);
+    return j && j.what_happens ? j : null;
+  } catch (e) { logger.warn('Clip understanding skipped: ' + e.message); return null; }
+}
+
+// Step 3: do the TOS and caption match the clip, and is the TOS strong?
+async function alignmentCheck(model, u, out) {
+  try {
+    return await geminiJson(model, [{ text: `Clip facts: ${u.what_happens} Core moment: ${u.core_moment}\nOn-screen text: ${out.onScreenText}\nCaption: ${String(out.caption).substring(0, 900)}\n\nJudge strictly. Return ONLY JSON: {"on_topic":true|false,"meaning_kept":true|false,"strong":true|false,"fix":"one sentence telling the writer how to fix it"}\n- on_topic: the on-screen text is about what really happens in the clip (not a random meme or unrelated joke)\n- meaning_kept: the on-screen text and caption do not change or contradict the clip's meaning, and the caption expands the same idea\n- strong: the on-screen text would stop a scroll (specific, creates curiosity or a reaction), not a bland label` }]);
+  } catch { return null; }
+}
+const alignOk = (c) => !c || (c.on_topic !== false && c.meaning_kept !== false && c.strong !== false);
+
+// Source narration ("X posted this", "went viral on…") is dropped even if the model slips
+const SOURCE_NARRATION = /\b(posted by|originally (posted|from|shared)|reposted|re-posted|credit to|shared by|via @|went viral on|blew up on|first posted)\b/i;
+function stripSourceSentences(text) {
+  return String(text || '').split(/\n\n/).map(par =>
+    par.split(/(?<=[.!?])\s+/).filter(sn => !SOURCE_NARRATION.test(sn)).join(' ')
+  ).filter(p => p.trim()).join('\n\n');
+}
+
 async function generateWithGeminiFrames({ frames, transcript, originalCaption, videoTitle, captionStyle, customPrompt, o }) {
   const { ai } = getGemini();
   const style = resolveStyle(captionStyle, customPrompt);
   const { allowed, textBlock } = buildHandleContext({ videoTitle, originalCaption, transcript, mentions: o.mentions });
+  const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+  const understanding = o.tosExact ? null : await understandClip(model, frames, { videoTitle, transcript });
   const extraContext = [
-    videoTitle      && `Video title: ${videoTitle}`,
-    originalCaption && `Original post caption: ${originalCaption.substring(0, 1200)}`,
+    understanding && `CLIP UNDERSTANDING (what really happens; the TOS must be built from the core moment, the caption must expand the same idea):\nWhat happens: ${understanding.what_happens}\nCore moment: ${understanding.core_moment}\nTone: ${understanding.tone}`,
+    videoTitle      && `Background only, never mention it. Video title: ${videoTitle}`,
+    originalCaption && `Background only, never mention it. Original post caption: ${originalCaption.substring(0, 1200)}`,
     transcript      && `Audio transcript: ${transcript.substring(0, 1500)}`,
     textBlock,
     buildOptionsBlock(o)
   ].filter(Boolean).join('\n\n');
-  const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
-  const result = await model.generateContent([
-    ...frames.map(data => ({ inlineData: { mimeType: 'image/jpeg', data } })),
-    { text: `The images above are ${frames.length} frames taken in order from the video.\n\n${buildSystemPrompt(o)}\n\nCaption style: ${style}\n\n${extraContext}\n\nGenerate the on-screen text and caption now:` }
-  ]);
-  return parseResponse(result.response.text(), allowed, o);
+
+  const generate = async (fix = '') => {
+    const result = await model.generateContent([
+      ...frames.map(data => ({ inlineData: { mimeType: 'image/jpeg', data } })),
+      { text: `The images above are ${frames.length} frames taken in order from the video.\n\n${buildSystemPrompt(o)}\n\nCaption style: ${style}\n\n${extraContext}${fix ? `\n\nFIX REQUIRED: ${fix}` : ''}\n\nGenerate the on-screen text and caption now:` }
+    ]);
+    return parseResponse(result.response.text(), allowed, o);
+  };
+
+  let out = await generate();
+  if (understanding && !o.tosExact) {
+    const c1 = await alignmentCheck(model, understanding, out);
+    if (!alignOk(c1)) {
+      out = await generate(c1.fix || 'Make the on-screen text specific to the clip\'s core moment and keep the caption on the same idea.');
+      const c2 = await alignmentCheck(model, understanding, out);
+      if (!alignOk(c2)) out.needsReview = true;
+    }
+  }
+  return out;
 }
 
 // Upload video to Gemini Files API and generate content using vision
@@ -399,11 +455,74 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
   return parseResponse(completion.choices[0].message.content, allowed, o);
 }
 
+// ── ONE note for everything ──────────────────────────────────────────────────
+// The page owner writes a single note ("funny caption, add the line "Link in bio", tag @brand, #ad, on screen: MOVIE10").
+// @tags and #hashtags are picked out in code (exact, no AI). The AI only sorts the rest into fields, and every
+// "exact" line it returns must really appear in the note, otherwise it is demoted to a plain instruction.
+const norm = (s) => String(s || '').replace(/[“”„]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
+const inBrief = (brief, piece) => !!norm(piece) && norm(brief).includes(norm(piece));
+const flat = (v) => Array.isArray(v) ? v.join(' ') : String(v || '');
+const lines = (v) => (Array.isArray(v) ? v : String(v || '').split(/\n+/)).map(x => String(x).trim()).filter(Boolean);
+
+async function parseBrief(brief) {
+  brief = String(brief || '').trim().slice(0, 1500);
+  const out = { instructions: '', mustInclude: [], mentions: [], hashtags: [], aiHashtags: false, tosExact: '', tosMustInclude: [] };
+  if (!brief) return out;
+  out.mentions = [...new Set((brief.match(/@[A-Za-z0-9._]{2,30}/g) || []).map(m => m.replace(/\.+$/, '')))];
+  out.hashtags = [...new Set(brief.match(/#[\p{L}\p{N}_]{1,50}/gu) || [])];
+
+  let j = null;
+  const prompt = `You split a social-media page owner's note about ONE post into fields. Return ONLY JSON:\n{"instructions":"","must_include":[],"tos_exact":"","tos_must_include":[],"ai_hashtags":false}\nRules:\n- must_include: lines the owner wants WORD-FOR-WORD in the caption (usually in quotes, or after "add the line", "caption must say"). Copy verbatim.\n- tos_exact: only if the owner gives the full on-screen text ("on screen:", "text on screen", "overlay:", "TOS:") copy it verbatim; else "".\n- tos_must_include: words or lines that must appear INSIDE the on-screen text while the rest is written freely. Verbatim.\n- ai_hashtags: true only if the owner asks you to choose/suggest hashtags without listing them.\n- instructions: everything else (tone, focus, what to avoid), short, in the owner's words. Do NOT repeat @handles, #tags, quoted lines or on-screen text here.\n- Never invent anything. If unsure, put it in instructions.\n\nNOTE:\n${brief}`;
+  try {
+    if (process.env.GEMINI_API_KEY) {
+      const { ai } = getGemini();
+      j = await geminiJson(ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' }), [{ text: prompt }]);
+    } else if (process.env.GROQ_API_KEY) {
+      const c = await getGroq().chat.completions.create({ model: 'openai/gpt-oss-120b', messages: [{ role: 'user', content: prompt }], max_tokens: 600, temperature: 0 });
+      const m = String(c.choices[0].message.content || '').match(/\{[\s\S]*\}/);
+      j = m ? JSON.parse(m[0]) : null;
+    }
+  } catch (e) { logger.warn('Brief parse failed, using the note as instructions: ' + e.message); }
+
+  if (!j) { out.instructions = brief; return out; }
+  const demoted = [];
+  for (const p of lines(j.must_include)) (inBrief(brief, p) ? out.mustInclude : demoted).push(p);
+  if (j.tos_exact) (inBrief(brief, j.tos_exact) ? (out.tosExact = String(j.tos_exact).trim()) : demoted.push(j.tos_exact));
+  for (const p of lines(j.tos_must_include)) (inBrief(brief, p) ? out.tosMustInclude : demoted).push(p);
+  out.aiHashtags = j.ai_hashtags === true && !out.hashtags.length;
+  out.instructions = [String(j.instructions || '').trim(), ...demoted].filter(Boolean).join('\n');
+  return out;
+}
+
+async function applyBrief(raw = {}) {
+  const brief = String(raw?.brief || '').trim();
+  if (!brief) return raw;
+  const p = await parseBrief(brief);
+  const join = (...a) => a.map(x => String(x || '').trim()).filter(Boolean).join('\n');
+  return {
+    ...raw,
+    instructions:   join(raw.instructions, p.instructions),
+    mustInclude:    join(flat(raw.mustInclude).split(/\n+/).join('\n'), p.mustInclude.join('\n')),
+    mentions:       [flat(raw.mentions), ...p.mentions].filter(Boolean).join(' '),
+    hashtags:       [flat(raw.hashtags), ...p.hashtags].filter(Boolean).join(' '),
+    aiHashtags:     raw.aiHashtags || p.aiHashtags,
+    tosExact:       p.tosExact || raw.tosExact,
+    tosMustInclude: join(flat(raw.tosMustInclude).split(/\n+/).join('\n'), p.tosMustInclude.join('\n'))
+  };
+}
+
 async function generateContent(args) {
-  const o = sanitizeOptions(args.options);
-  const res = await generateContentInner(args, o);
+  const o = sanitizeOptions(await applyBrief(args.options));
+  let res = await generateContentInner(args, o);
+  if (SOURCE_NARRATION.test(`${res.caption}\n${res.onScreenText}`)) {
+    const o2 = { ...o, instructions: [o.instructions, 'Do not mention who posted the clip, where it came from, or that it went viral elsewhere.'].filter(Boolean).join('\n') };
+    res = await generateContentInner(args, o2);
+    if (SOURCE_NARRATION.test(res.caption)) res.caption = stripSourceSentences(res.caption);
+    if (SOURCE_NARRATION.test(res.onScreenText)) res.onScreenText = '';
+  }
   if (o.tosExact) res.onScreenText = o.tosExact;
   else if (o.tosMustInclude.length && !res.onScreenText) res.onScreenText = o.tosMustInclude.join(' ');
+  res.tosLocked = !!(o.tosExact || o.tosMustInclude.length);   // the UI only overwrites edited on-screen text when it was set by the note
   return res;
 }
 
@@ -412,7 +531,7 @@ async function generateContentInner({ videoPath, transcript, originalCaption, vi
   // No API keys at all
   if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
     return {
-      caption: originalCaption || videoTitle || 'Check this out!\n\nDM for credit or removal request.\nI do not own the rights to this video.\nAll rights belong to their respective owners.',
+      caption: originalCaption || videoTitle || 'Check this out!',
       onScreenText: ''
     };
   }
@@ -459,4 +578,4 @@ async function generateSubtitleLines({ transcript, segments }) {
   return segments || [];
 }
 
-module.exports = { generateContent, generateCaption, generateSubtitleLines, sanitizeOptions };
+module.exports = { generateContent, generateCaption, generateSubtitleLines, sanitizeOptions, parseBrief };
