@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const path = require('path');
 const axios = require('axios');
 const { getDB } = require('../models/db');
-const { postReel } = require('./instagramPoster');
+const { postReel, getPermalink } = require('./instagramPoster');
 const { postReelWithBrowser } = require('./instagramWebPoster');
 const logger = require('./logger');
 const { gateDecision } = require('./contentGuard');
@@ -108,9 +108,10 @@ cron.schedule('*/10 * * * *', async () => {
               postId: post.id,
               accountId: accountKey,
             }).then(() => null));
+        const link = await getPermalink(mediaId, post.access_token);
         await db.run(
-          `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, error_message=NULL WHERE id=$3`,
-          [new Date().toISOString(), mediaId, post.id]
+          `UPDATE posts SET status='posted', posted_at=$1, ig_media_id=$2, ig_permalink=$3, error_message=NULL WHERE id=$4`,
+          [new Date().toISOString(), mediaId, link, post.id]
         );
         logger.info(`Scheduled post published: ${post.id} -> ${mediaId}`, {
           accountId: accountKey,
