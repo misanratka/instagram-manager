@@ -1,7 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDB } = require('../models/db');
-const { verifyToken } = require('../services/instagramPoster');
+const { verifyToken, fetchProfilePicture } = require('../services/instagramPoster');
 const { createFallbackSession, getSessionPath, getLegacySessionPath, removeSessionPath } = require('../services/instagramWebPoster');
 const logger = require('../services/logger');
 const { google } = require('googleapis');
@@ -49,7 +49,7 @@ router.get('/', async (req, res, next) => {
   try {
     const userId = req.headers['x-user-id'];
     const accounts = await getDB().all(
-      `SELECT id, name, username, ig_user_id, access_token, token_scopes, fallback_username, fallback_session_path, fallback_connected_at, caption_style, caption_prompt, brand_name, brand_handle, brand_verified, brand_avatar, brand_theme, created_at, token_connected_at,
+      `SELECT id, name, username, ig_user_id, access_token, token_scopes, fallback_username, fallback_session_path, fallback_connected_at, caption_style, caption_prompt, brand_name, brand_handle, brand_verified, brand_avatar, brand_theme, ig_avatar, created_at, token_connected_at,
               CASE WHEN access_token IS NOT NULL AND access_token <> '' THEN 1 ELSE 0 END as has_token
        FROM accounts WHERE user_id=$1 ORDER BY created_at DESC`,
       [userId]
@@ -116,10 +116,29 @@ router.post('/', async (req, res, next) => {
       [id, userId, name, username, ig_user_id || null, access_token || null, token_scopes || null, caption_style || 'casual', caption_prompt || null]
     );
 
+    // Save the Instagram profile picture in the background (the list also fills it in later if this fails)
+    if (ig_user_id && access_token) {
+      fetchProfilePicture(ig_user_id, access_token)
+        .then(av => av && getDB().run('UPDATE accounts SET ig_avatar=$1 WHERE id=$2', [av, id]))
+        .catch(() => {});
+    }
+
     // Update Google Sheet with the new IG account
     if (userId) await updateSheetAccount(userId, username);
 
     res.json({ id, username, message: 'Account added successfully' });
+  } catch (err) { next(err); }
+});
+
+// Fetch (or refresh) the Instagram profile picture for one connected account
+router.post('/:id/avatar', async (req, res, next) => {
+  try {
+    const db = getDB();
+    const acct = await db.get('SELECT id, ig_user_id, access_token, ig_avatar FROM accounts WHERE id=$1 AND user_id=$2', [req.params.id, req.headers['x-user-id']]);
+    if (!acct) return res.status(404).json({ error: 'Account not found' });
+    const av = await fetchProfilePicture(acct.ig_user_id, acct.access_token);
+    if (av) await db.run('UPDATE accounts SET ig_avatar=$1 WHERE id=$2', [av, acct.id]);
+    res.json({ avatar: av || acct.ig_avatar || null });
   } catch (err) { next(err); }
 });
 
