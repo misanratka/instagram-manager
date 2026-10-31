@@ -24,6 +24,8 @@ function fileToAvatar(file) {
 }
 const BACKEND = (import.meta.env.VITE_BACKEND_URL ?? '').replace(/\/$/, '');
 
+const avatarTried = new Set();   // accounts we already asked Instagram for a picture this session
+
 export default function AccountManager() {
   const [accounts, setAccounts] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -38,6 +40,21 @@ export default function AccountManager() {
     const t = setTimeout(() => setSuccess(''), 3500);
     return () => clearTimeout(t);
   }, [success]);
+
+  // connected accounts without a picture yet: fetch their Instagram profile picture (a few at a time, once per session)
+  useEffect(() => {
+    const missing = accounts.filter(a => a.has_token && !a.ig_avatar && !avatarTried.has(a.id)).slice(0, 8);
+    if (!missing.length) return;
+    missing.forEach(a => avatarTried.add(a.id));
+    (async () => {
+      const found = {};
+      for (const a of missing) {
+        const r = await api.refreshAvatar(a.id).catch(() => null);
+        if (r?.avatar) found[a.id] = r.avatar;
+      }
+      if (Object.keys(found).length) setAccounts(prev => prev.map(a => found[a.id] ? { ...a, ig_avatar: found[a.id] } : a));
+    })();
+  }, [accounts]);
 
   useEffect(() => {
     load();
@@ -206,9 +223,13 @@ export default function AccountManager() {
 
       <div style={s.list}>
         {accounts.map((a, i) => (
-          <div key={a.id} style={{ ...s.card, animationDelay: `${Math.min(i, 8) * 55}ms` }} className="fade-up card-hover">
+          <div key={a.id} style={{ ...s.card, animationDelay: `${Math.min(i, 8) * 55}ms` }} className="fade-up card-hover tilt glass">
             <div style={s.cardLeft}>
-              <div style={s.avatar}>{(a.username || a.name || '?')[0].toUpperCase()}</div>
+              <div style={{ ...s.avatar, overflow: 'hidden', padding: 0 }}>
+                {(a.brand_avatar || a.ig_avatar)
+                  ? <img src={a.brand_avatar || a.ig_avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  : (a.username || a.name || '?')[0].toUpperCase()}
+              </div>
               <div>
                 <div style={s.acctName}>{a.name}</div>
                 <div style={s.acctHandle}>@{a.username || a.ig_user_id}</div>
