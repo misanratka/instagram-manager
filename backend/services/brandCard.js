@@ -28,6 +28,7 @@ function findFont(names) {
 
 let fontsReady = false;
 let SANS = 'sans-serif';
+let INTER = false;
 function setupFonts() {
   if (fontsReady) return;
   fontsReady = true;
@@ -44,10 +45,19 @@ function setupFonts() {
     if (dj) { GlobalFonts.registerFromPath(dj, 'CardSans'); SANS = 'CardSans'; }
     if (djb) GlobalFonts.registerFromPath(djb, 'CardSans');
   }
+  // Inter = clean iPhone/Instagram-style sans (open licence). Comes from the @fontsource/inter package; if missing we fall back to Liberation.
+  try {
+    for (const w of [400, 600, 700]) {
+      const f = require.resolve(`@fontsource/inter/files/inter-latin-${w}-normal.woff`);
+      GlobalFonts.registerFromPath(f, 'CardInter');
+    }
+    INTER = true;
+  } catch { INTER = false; }
   const emoji = process.env.EMOJI_FONT_PATH || findFont(['NotoColorEmoji.ttf']);
   if (emoji && fs.existsSync(emoji)) GlobalFonts.registerFromPath(emoji, 'CardEmoji');
 }
-const fontStack = (px, bold) => `${bold ? 'bold ' : ''}${px}px "${SANS}", "CardEmoji", "Noto Color Emoji", sans-serif`;
+// weight: true = 700, false = 400, or a number (600 = the semibold used for the main text)
+const fontStack = (px, weight) => `${weight === true ? 700 : (weight || 400)} ${px}px ${INTER ? '"CardInter", ' : ''}"${SANS}", "CardEmoji", "Noto Color Emoji", sans-serif`;
 
 // ── Themes ────────────────────────────────────────────────────────────────────
 // Borderless "tweet" look: text sits directly on the canvas colour (black for dark, white for light).
@@ -138,7 +148,7 @@ async function renderCard(o) {
   const MAX_LINES = 8;
 
   const probe = createCanvas(10, 10).getContext('2d');
-  probe.font = fontStack(TEXT_PX, false);
+  probe.font = fontStack(TEXT_PX, 600);
   let lines = wrapText(probe, (o.text || '').trim(), CARD_W);
   if (lines.length > MAX_LINES) {
     lines = lines.slice(0, MAX_LINES);
@@ -199,7 +209,7 @@ async function renderCard(o) {
   }
 
   // text
-  ctx.font = fontStack(TEXT_PX, false);
+  ctx.font = fontStack(TEXT_PX, 600);
   ctx.fillStyle = th.text;
   lines.forEach((ln, i) => ctx.fillText(ln, 0, textTop + Math.round(TEXT_PX * 0.95) + i * LINE_H));
 
