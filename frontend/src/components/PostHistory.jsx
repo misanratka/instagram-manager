@@ -87,7 +87,7 @@ export default function PostHistory() {
           const st = STATUS[post.status] ?? STATUS.draft;
           const caption = post.final_caption || post.generated_caption || '';
           return (
-            <div key={post.id} style={{ ...s.card, animationDelay: `${Math.min(i, 8) * 45}ms` }} className={`fade-up card-hover${removing === post.id ? ' removing' : ''}`}>
+            <div key={post.id} style={{ ...s.card, animationDelay: `${Math.min(i, 8) * 45}ms` }} className={`fade-up card-hover tilt glass${removing === post.id ? ' removing' : ''}`}>
               {/* Status bar */}
               <div style={s.cardTop}>
                 <span style={{ ...s.statusBadge, color: st.color, background: st.bg }}>
