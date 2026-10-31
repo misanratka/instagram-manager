@@ -86,6 +86,7 @@ const list = (v, splitter) => (v === undefined || v === null ? [] : (Array.isArr
 function mergeOptions(page, itemOptions) {
   const o = itemOptions || {};
   return {
+    brief: o.brief,
     instructions: o.instructions,
     must_include: o.must_include,
     mentions: o.mentions,
@@ -94,7 +95,8 @@ function mergeOptions(page, itemOptions) {
     tos_exact: o.tos_exact,
     tos_must_include: o.tos_must_include,
     credit_line: o.credit_line !== undefined ? o.credit_line : !!(page.ap_credit_line ?? 1),
-    layout: o.layout === 'text' || o.layout === 'card' ? o.layout : (page.ap_layout === 'text' ? 'text' : 'card')
+    layout: o.layout === 'text' || o.layout === 'card' ? o.layout : (page.ap_layout === 'text' ? 'text' : 'card'),
+    theme: o.theme === 'light' || o.theme === 'dark' ? o.theme : undefined   // undefined = the page's own card theme
   };
 }
 
@@ -130,7 +132,19 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
 
   async function runItem(item, page) {
     const userId = page.user_id || undefined;
-    const opts = mergeOptions(page, safeJson(item.options));
+    let opts = mergeOptions(page, safeJson(item.options));
+    if (String(opts.brief || '').trim()) {   // one note → exact lines / tags / hashtags / on-screen text, parsed once
+      const p = await require('./captionGenerator').parseBrief(opts.brief);
+      const add = (a, b) => [a, b].filter(Boolean).join('\n');
+      opts = { ...opts, brief: undefined,
+        instructions: add(opts.instructions, p.instructions),
+        must_include: add(opts.must_include, p.mustInclude.join('\n')),
+        mentions: [opts.mentions, ...p.mentions].filter(Boolean).join(' '),
+        hashtags: [opts.hashtags, ...p.hashtags].filter(Boolean).join(' '),
+        ai_hashtags: opts.ai_hashtags || p.aiHashtags,
+        tos_exact: p.tosExact || opts.tos_exact,
+        tos_must_include: add(opts.tos_must_include, p.tosMustInclude.join('\n')) };
+    }
     const reqOpts = {};
     for (const k of ['instructions', 'must_include', 'mentions', 'hashtags', 'ai_hashtags', 'tos_exact', 'tos_must_include', 'credit_line']) {
       if (opts[k] !== undefined && opts[k] !== null && opts[k] !== '') reqOpts[k] = opts[k];
@@ -142,6 +156,13 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
       throw new Error('Download blocked' + (proc.downloadError ? `: ${String(proc.downloadError).split('\n')[0]}` : ''));
     }
     await store.setPostId(item.id, proc.postId);
+
+    // safety gate: anything not clearly safe is held, never auto-posted
+    if (proc.guard && proc.guard.level !== 'clear') {
+      const e = new Error('Held by safety check: ' + (proc.guard.reasons || []).join('; '));
+      e.hold = true;
+      throw e;
+    }
 
     // 2. rule check (campaign lines etc.). Rewrite up to twice, then refuse to post.
     let caption = proc.generatedCaption, hook = proc.hookText;
@@ -157,7 +178,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
     let mode = opts.layout;
     if (mode === 'card' && !String(hook || '').trim()) mode = 'text';   // no text for the card → crop only
     await call('POST', `/api/content/enhance/${proc.postId}`,
-      { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop) } }, userId, 10 * 60 * 1000);
+      { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop), theme: opts.theme } }, userId, 10 * 60 * 1000);
 
     // 4. publish, then wait for the result
     await call('POST', `/api/posts/${proc.postId}/publish`, { account_id: page.id, caption, hookText: hook }, userId, 60 * 1000);
@@ -179,6 +200,11 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
       logger.info(`Autopilot posted ${item.url} to ${page.username || page.id}`);
     } catch (err) {
       const msg = String(err.message || err).slice(0, 500);
+      if (err.hold) {   // held clips are not errors: no retry, and they don't count toward pausing the page
+        await store.markFailed(item.id, msg, now().toISOString());
+        logger.warn(`Autopilot held ${item.url}: ${msg}`);
+        return;
+      }
       const attempts = (item.attempts || 0) + 1;
       logger.warn(`Autopilot item failed (${attempts}/${MAX_ATTEMPTS}) for ${page.username || page.id}: ${msg}`);
       if (attempts < MAX_ATTEMPTS) {
