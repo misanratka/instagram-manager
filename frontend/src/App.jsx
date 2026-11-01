@@ -1,5 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import NewPost from './components/NewPost';
+import QuickPost from './components/QuickPost';
 
 // Only the Create tab loads up front. The other tabs load in the background while you work,
 // so switching to them is instant instead of waiting for a download.
@@ -23,6 +24,12 @@ const TABS = [
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="12" r="9" stroke={active ? '#fff' : '#555'} strokeWidth="2"/>
       <path d="M12 8v8M8 12h8" stroke={active ? '#fff' : '#555'} strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  )},
+  { id: 'multi', label: 'Multi', icon: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="7" width="12" height="12" rx="3" stroke={active ? '#fff' : '#555'} strokeWidth="2"/>
+      <path d="M9 3h9a3 3 0 013 3v9" stroke={active ? '#fff' : '#555'} strokeWidth="2" strokeLinecap="round"/>
     </svg>
   )},
   { id: 'history', label: 'Posts', icon: (active) => (
@@ -207,6 +214,7 @@ export default function App() {
       <main style={s.main}>
         {/* NewPost stays mounted so in-progress work isn't lost when switching tabs */}
         <div className="tab-enter" style={{ display: tab === 'new' ? 'block' : 'none' }}><NewPost /></div>
+        <div className="tab-enter" style={{ display: tab === 'multi' ? 'block' : 'none' }}><QuickPost /></div>
         <Suspense fallback={<TabFallback />}>
           {tab === 'history'  && <div key="history"  className="tab-enter"><PostHistory /></div>}
           {tab === 'autopilot' && <div key="autopilot" className="tab-enter"><Autopilot /></div>}
