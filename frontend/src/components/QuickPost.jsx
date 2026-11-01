@@ -35,6 +35,8 @@ export default function QuickPost() {
   const [status, setStatus]     = useState('');
   const [error, setError]       = useState('');
   const [results, setResults]   = useState([]);          // [{ accountId, name, username, state: 'sending'|'publishing'|'posted'|'failed', error }]
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [capBusy, setCapBusy]   = useState(false);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export default function QuickPost() {
 
   function reset() {
     setStep(STEP.INPUT); setResult(null); setCaption(''); setOnScreen(''); setCapOpts({});
-    setUrl(''); setFile(null); setError(''); setStatus(''); setResults([]); setBusy(false); setJobInfo(null);
+    setUrl(''); setFile(null); setError(''); setStatus(''); setResults([]); setBusy(false); setJobInfo(null); setScheduleTime(''); setCapBusy(false);
   }
 
   async function handlePasteAndProcess() {
@@ -105,7 +107,15 @@ export default function QuickPost() {
 
   const setRow = (accountId, patch) => setResults(rs => rs.map(r => r.accountId === accountId ? { ...r, ...patch } : r));
 
-  async function handlePost() {
+  async function handlePost() { return runMulti('now'); }
+  async function handleSchedule() {
+    if (!scheduleTime) return setError('Pick a date and time.');
+    if (new Date(scheduleTime).getTime() < Date.now() + 4 * 60000) return setError('Pick a time at least 5 minutes from now.');
+    return runMulti('schedule');
+  }
+
+  async function runMulti(mode) {
+    if (!result?.videoUrl) return setError('Upload the video first.');
     if (!picked.length) return setError('Pick at least one account.');
     if (!result?.postId) return;
     if (!guardOk()) return;
@@ -125,35 +135,48 @@ export default function QuickPost() {
       const rows = posts.map(p => ({ ...p, state: 'sending', error: '' }));
       setResults(rows); setStep(STEP.DONE);
 
-      // 3) Publish each (the server publishes in the background, so these calls return fast)
-      setStatus('Sending to Instagram…');
-      const live = new Set();                       // post ids still publishing
-      const queue = [...rows];
-      const worker = async () => {
-        for (let row = queue.shift(); row; row = queue.shift()) {
+      if (mode === 'schedule') {
+        setStatus('Scheduling…');
+        const iso = new Date(scheduleTime).toISOString();
+        for (const row of rows) {
           try {
-            await api.publishPost(row.postId, { account_id: row.accountId, caption });
-            setRow(row.accountId, { state: 'publishing' });
-            live.add(row.postId);
+            await api.schedulePost(row.postId, { scheduled_at: iso, account_id: row.accountId, caption });
+            setRow(row.accountId, { state: 'scheduled' });
           } catch (e) {
             setRow(row.accountId, { state: 'failed', error: e.message });
           }
         }
-      };
-      await Promise.all([worker(), worker(), worker()]);
+      } else {
+        // 3) Publish each (the server publishes in the background, so these calls return fast)
+        setStatus('Sending to Instagram…');
+        const live = new Set();                       // post ids still publishing
+        const queue = [...rows];
+        const worker = async () => {
+          for (let row = queue.shift(); row; row = queue.shift()) {
+            try {
+              await api.publishPost(row.postId, { account_id: row.accountId, caption });
+              setRow(row.accountId, { state: 'publishing' });
+              live.add(row.postId);
+            } catch (e) {
+              setRow(row.accountId, { state: 'failed', error: e.message });
+            }
+          }
+        };
+        await Promise.all([worker(), worker(), worker()]);
 
-      // 4) Watch until every account is posted or failed
-      const started = Date.now();
-      while (live.size && Date.now() - started < POLL_TIMEOUT_MS) {
-        await sleep(POLL_MS);
-        const posts2 = await api.getPosts().catch(() => null);
-        if (!posts2) continue;
-        for (const row of rows) {
-          if (!live.has(row.postId)) continue;
-          const p = posts2.find(x => x.id === row.postId);
-          if (!p) continue;
-          if (p.status === 'posted') { setRow(row.accountId, { state: 'posted', error: '' }); live.delete(row.postId); }
-          else if (p.status === 'failed') { setRow(row.accountId, { state: 'failed', error: p.error_message || 'Instagram publishing failed.' }); live.delete(row.postId); }
+        // 4) Watch until every account is posted or failed
+        const started = Date.now();
+        while (live.size && Date.now() - started < POLL_TIMEOUT_MS) {
+          await sleep(POLL_MS);
+          const posts2 = await api.getPosts().catch(() => null);
+          if (!posts2) continue;
+          for (const row of rows) {
+            if (!live.has(row.postId)) continue;
+            const p = posts2.find(x => x.id === row.postId);
+            if (!p) continue;
+            if (p.status === 'posted') { setRow(row.accountId, { state: 'posted', error: '' }); live.delete(row.postId); }
+            else if (p.status === 'failed') { setRow(row.accountId, { state: 'failed', error: p.error_message || 'Instagram publishing failed.' }); live.delete(row.postId); }
+          }
         }
       }
       setStatus('');
@@ -169,6 +192,9 @@ export default function QuickPost() {
   const srcUrl = mediaUrl(result?.videoUrl);
   const guard = result?.guard;
   const blocked = guard && guard.level && guard.level !== 'clear';
+  const noVideo = !result?.videoUrl;
+  const off = busy || capBusy || !picked.length || blocked || noVideo;
+  const minTime = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16);
 
   // ── INPUT ──────────────────────────────────────────────────────────────────
   if (step === STEP.INPUT) return (
@@ -218,7 +244,7 @@ export default function QuickPost() {
     return (
       <div>
         <h2 style={s.h2}>{left ? 'Posting…' : 'Finished'}</h2>
-        <p style={s.sub}>{status || (left ? 'Instagram is still processing some reels.' : 'Check Posts for links.')}</p>
+        <p style={s.sub}>{status || (left ? 'Instagram is still processing some reels.' : 'Check the Posts tab for details.')}</p>
         <div style={s.card} className="glass">
           {results.map(r => (
             <div key={r.accountId} style={s.resRow}>
@@ -227,8 +253,8 @@ export default function QuickPost() {
                 {r.username && <div style={{ color: '#666', fontSize: 12 }}>@{r.username}</div>}
                 {r.state === 'failed' && <div style={{ color: '#ff7070', fontSize: 12, marginTop: 4 }}>{r.error}</div>}
               </div>
-              <div style={{ ...s.badge, ...(r.state === 'posted' ? s.ok : r.state === 'failed' ? s.bad : s.wait) }}>
-                {r.state === 'posted' ? 'Posted' : r.state === 'failed' ? 'Failed' : 'Sending…'}
+              <div style={{ ...s.badge, ...((r.state === 'posted' || r.state === 'scheduled') ? s.ok : r.state === 'failed' ? s.bad : s.wait) }}>
+                {r.state === 'posted' ? 'Posted' : r.state === 'scheduled' ? 'Scheduled' : r.state === 'failed' ? 'Failed' : 'Sending…'}
               </div>
             </div>
           ))}
@@ -249,12 +275,39 @@ export default function QuickPost() {
         </div>
       )}
 
-      <div style={s.label}>Frame</div>
+      {!result.videoUrl && (
+        <div style={s.card} className="glass">
+          <div style={{ fontSize: 13, color: '#aaa', marginBottom: 10, lineHeight: 1.5 }}>
+            {result.captionSkipped
+              ? 'Instagram blocked this video, so no caption was written. Upload the video file and the caption will be written from it.'
+              : 'Only the caption was copied from that Instagram post. Upload the video file to continue.'}
+          </div>
+          {result.downloadError && (
+            <div style={{ fontSize: 12, color: '#f0a060', marginBottom: 10, whiteSpace: 'pre-line' }}>
+              Why it couldn’t be downloaded: {String(result.downloadError).slice(0, 600)}
+            </div>
+          )}
+          <VideoUpload postId={result.postId} onUploaded={async (vurl, autoCrop) => {
+            const skipped = result.captionSkipped;
+            setResult(r => ({ ...r, videoUrl: vurl, instagramUrl: null, captionSkipped: false, autoCrop: autoCrop || null }));
+            if (!skipped) return;
+            setCapBusy(true);
+            try {
+              const res = await api.regenerateCaption(result.postId, null, capOpts);
+              setCaption(res.generatedCaption || '');
+              if (res.hookText) setOnScreen(res.hookText);
+            } catch (e) { setError(e.message); }
+            finally { setCapBusy(false); }
+          }} />
+        </div>
+      )}
+
+      {result.videoUrl && <div style={s.label}>Frame</div>}
       {badPreview && badPreview === srcUrl && (
         <div style={{ ...s.err, marginBottom: 10 }}>Preview couldn’t load. Process the clip again.</div>
       )}
-      <FrameEditor src={srcUrl} frame={frame} onChange={setFrame} autoFrame={autoFrame}
-        cardImg={cardImg} cardH={cardH} canvasColor={canvasColor} onVideoError={() => setBadPreview(srcUrl)} />
+      {result.videoUrl && <FrameEditor src={srcUrl} frame={frame} onChange={setFrame} autoFrame={autoFrame}
+        cardImg={cardImg} cardH={cardH} canvasColor={canvasColor} onVideoError={() => setBadPreview(srcUrl)} />}
 
       <div style={s.label}>On-screen text</div>
       <textarea id="multi-tos" name="tos" rows={2} style={s.input} value={onScreen} onChange={e => setOnScreen(e.target.value)}
@@ -267,7 +320,8 @@ export default function QuickPost() {
       </div>
 
       <div style={s.label}>Caption</div>
-      <textarea id="multi-caption" name="caption" rows={7} style={s.input} value={caption} onChange={e => setCaption(e.target.value)} />
+      <textarea id="multi-caption" name="caption" rows={7} style={s.input} value={caption} disabled={capBusy}
+        placeholder={capBusy ? 'Writing caption from your video…' : 'Caption'} onChange={e => setCaption(e.target.value)} />
       <RegenerateBar postId={result.postId} accountId={null} options={capOpts}
         onCaption={(c, h) => { setCaption(c || ''); if (h) setOnScreen(h); }} />
       <div style={{ height: 14 }} />
@@ -298,11 +352,45 @@ export default function QuickPost() {
       {error && <div style={s.err}>{error}</div>}
       {status && <div style={{ color: '#aaa', fontSize: 13, margin: '10px 0' }}>{status}</div>}
 
-      <button onClick={handlePost} disabled={busy || !picked.length || blocked} className="shine"
-        style={{ ...s.btn, ...s.primary, opacity: busy || !picked.length || blocked ? 0.4 : 1 }}>
+      <button onClick={handlePost} disabled={off} className="shine"
+        style={{ ...s.btn, ...s.primary, opacity: off ? 0.4 : 1 }}>
         {busy ? 'Working…' : `Post to ${picked.length || ''} account${picked.length === 1 ? '' : 's'}`}
       </button>
+      <div style={{ ...s.card, marginTop: 14 }} className="glass">
+        <div style={{ color: '#888', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>Or schedule for later</div>
+        <input id="multi-schedule" name="schedule_time" type="datetime-local" min={minTime} value={scheduleTime}
+          onChange={e => setScheduleTime(e.target.value)} style={s.input} />
+        <button onClick={handleSchedule} disabled={off || !scheduleTime}
+          style={{ ...s.btn, background: '#1a1a1a', color: '#fff', border: '1px solid #333', marginTop: 10, opacity: off || !scheduleTime ? 0.4 : 1 }}>
+          {`Schedule for ${picked.length || ''} account${picked.length === 1 ? '' : 's'}`}
+        </button>
+      </div>
       <button onClick={reset} disabled={busy} style={{ ...s.btn, background: '#151515', color: '#aaa', marginTop: 10 }}>Start over</button>
+    </div>
+  );
+}
+
+function VideoUpload({ postId, onUploaded }) {
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+  const ref = useRef(null);
+  async function handleFile(f) {
+    if (!f || !f.type.startsWith('video/')) return setErr('Please select a video file');
+    setErr(''); setUploading(true);
+    try { const d = await api.attachVideo(postId, f); onUploaded(d.videoUrl, d.autoCrop); }
+    catch (e) { setErr(e.message); }
+    finally { setUploading(false); }
+  }
+  return (
+    <div>
+      {err && <div style={{ color: '#ff7070', fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <div style={{ border: '2px dashed #333', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: 'pointer', color: '#888', fontSize: 13 }}
+        onClick={() => ref.current?.click()}
+        onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+        onDragOver={e => e.preventDefault()}>
+        {uploading ? 'Uploading…' : <><div style={{ fontSize: 24, marginBottom: 6 }}>📁</div>Tap to upload the video file</>}
+      </div>
+      <input id="multi-ig-video" name="multi_ig_video" ref={ref} type="file" accept="video/*" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
     </div>
   );
 }
