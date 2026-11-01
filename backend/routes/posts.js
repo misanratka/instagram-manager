@@ -46,6 +46,37 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Make one separate copy of a processed post for each chosen account (they all share the same rendered video file).
+// Used by the "Multi" tab: one clip -> many accounts. Each copy is then published through the normal /:id/publish route.
+router.post('/:id/clone', async (req, res, next) => {
+  try {
+    const { account_ids } = req.body || {};
+    const ids = [...new Set(Array.isArray(account_ids) ? account_ids.filter(Boolean) : [])];
+    if (!ids.length) return res.status(400).json({ error: 'Pick at least one account.' });
+    const db = getDB();
+    const src = await db.get('SELECT * FROM posts WHERE id=$1', [req.params.id]);
+    if (!src) return res.status(404).json({ error: 'Post not found' });
+    const userId = req.headers['x-user-id'];
+    const { v4: uuidv4 } = require('uuid');
+    const out = [];
+    for (const accountId of ids) {
+      const acct = await db.get('SELECT id, name, username, user_id FROM accounts WHERE id=$1', [accountId]);
+      if (!acct) return res.status(400).json({ error: 'One of the selected accounts no longer exists.' });
+      if (userId && acct.user_id && acct.user_id !== userId) return res.status(403).json({ error: 'Not your account.' });
+      const id = uuidv4();
+      await db.run(
+        `INSERT INTO posts (id, account_id, video_url, local_video_path, enhanced_video_path, original_caption, generated_caption,
+                            hook_text, subtitles_srt, final_caption, status, guard_level, guard_reasons, guard_ack, credit_handle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14)`,
+        [id, accountId, src.video_url, src.local_video_path, src.enhanced_video_path, src.original_caption, src.generated_caption,
+         src.hook_text, src.subtitles_srt, src.final_caption, src.guard_level, src.guard_reasons, src.guard_ack || 0, src.credit_handle]
+      );
+      out.push({ postId: id, accountId, name: acct.name, username: acct.username });
+    }
+    res.json({ posts: out });
+  } catch (err) { next(err); }
+});
+
 router.post('/:id/publish', async (req, res, next) => {
   try {
     const { account_id, caption, hookText } = req.body;
