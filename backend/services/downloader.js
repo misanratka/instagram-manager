@@ -11,17 +11,32 @@ function getUploadDir() {
 }
 
 const IG_COOKIES_PATH = path.resolve(__dirname, '..', 'ig_cookies.txt');
+// Up to 3 cookie sets (different accounts): INSTAGRAM_COOKIES_CONTENT, _2, _3. They are tried in that order.
+const IG_COOKIE_FILES = [
+  { env: 'INSTAGRAM_COOKIES_CONTENT',   file: IG_COOKIES_PATH },
+  { env: 'INSTAGRAM_COOKIES_CONTENT_2', file: path.resolve(__dirname, '..', 'ig_cookies_2.txt') },
+  { env: 'INSTAGRAM_COOKIES_CONTENT_3', file: path.resolve(__dirname, '..', 'ig_cookies_3.txt') },
+];
 (function initCookies() {
-  const content = process.env.INSTAGRAM_COOKIES_CONTENT;
-  if (content && content.trim()) {
-    try {
-      fs.writeFileSync(IG_COOKIES_PATH, content.trim(), 'utf8');
-      logger.info('Instagram cookies written from INSTAGRAM_COOKIES_CONTENT env var');
-    } catch (e) {
-      logger.warn('Failed to write Instagram cookies file:', e.message);
+  for (const { env, file } of IG_COOKIE_FILES) {
+    const content = process.env[env];
+    if (content && content.trim()) {
+      try {
+        fs.writeFileSync(file, content.trim(), 'utf8');
+        logger.info(`Instagram cookies written from ${env} env var`);
+      } catch (e) {
+        logger.warn(`Failed to write Instagram cookies file (${env}):`, e.message);
+      }
     }
   }
 })();
+
+// Every cookie set available, as yt-dlp argument arrays, in priority order
+function igCookieSets() {
+  const sets = IG_COOKIE_FILES.filter(c => fs.existsSync(c.file)).map(c => ['--cookies', c.file]);
+  if (!sets.length && hasCookiesConfigured()) sets.push(cookieArgs());
+  return sets;
+}
 
 function cookieArgs() {
   if (fs.existsSync(IG_COOKIES_PATH)) return ['--cookies', IG_COOKIES_PATH];
@@ -284,6 +299,11 @@ function probeSize(file) {
   });
 }
 
+// After Instagram rate-limits (429) or blocks the server, stop hitting it for a while.
+// Retrying only extends the block, and every attempt costs ~30s of waiting before the user can upload instead.
+let igBlockedUntil = 0;
+const IG_BACKOFF_MS = 45 * 60 * 1000;
+
 async function downloadVideo(url) {
   const uploadDir = getUploadDir();
   const filename = `${uuidv4()}.mp4`;
@@ -301,6 +321,10 @@ async function downloadVideo(url) {
   }
 
   if (isInstagramUrl(url)) {
+    if (Date.now() < igBlockedUntil) {
+      const mins = Math.max(1, Math.ceil((igBlockedUntil - Date.now()) / 60000));
+      throw new Error(`Instagram is rate-limiting this server right now (retrying automatically in about ${mins} min). Upload the video file instead.`);
+    }
     // Try every method and KEEP THE HIGHEST RESOLUTION (the old flow returned the
     // first success, which was usually the low-res page-scrape file).
     const candidates = []; // { name, file, w, h, px }
@@ -321,7 +345,7 @@ async function downloadVideo(url) {
       } catch (e) {
         logger.warn(`IG candidate [${name}] failed: ${e.message}`);
         failures.push(`${name}: ${String((String(e.message).match(/ERROR:\s*(.+)/) || [])[1] || e.message).split('\n')[0].slice(0, 160)}`);
-        if (name === 'ytdlp-cookies') cookieFailed = true;
+        if (name.startsWith('ytdlp-cookies')) cookieFailed = true;
         try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch {}
       }
       return false;
@@ -330,8 +354,9 @@ async function downloadVideo(url) {
     let done = false;
 
     // 1. yt-dlp (+ cookies if configured) — only method that can reach the DASH 1080p streams
-    if (hasCookiesConfigured()) {
-      done = await tryCandidate('ytdlp-cookies', f => ytDlpDownload(url, f, cookieArgs()));
+    const cookieSets = igCookieSets();
+    for (let i = 0; i < cookieSets.length && !done && !candidates.length; i++) {
+      done = await tryCandidate(i === 0 ? 'ytdlp-cookies' : `ytdlp-cookies${i + 1}`, f => ytDlpDownload(url, f, cookieSets[i]));
     }
     if (!done && !candidates.length) {
       done = await tryCandidate('ytdlp', f => ytDlpDownload(url, f, [
@@ -368,6 +393,11 @@ async function downloadVideo(url) {
       return res;
     }
 
+    if (failures.some(f => /429|too many requests|rate.?limit|login required|checkpoint/i.test(f))) {
+      igBlockedUntil = Date.now() + IG_BACKOFF_MS;
+      logger.warn(`Instagram blocked downloads; pausing attempts for ${IG_BACKOFF_MS / 60000} min`);
+      throw new Error('Instagram is rate-limiting this server (HTTP 429). Upload the video file instead — downloads by link will be retried automatically in about 45 min.');
+    }
     if (cookieFailed) {
       throw new Error('Instagram download failed. Cookies may have expired — re-export and update INSTAGRAM_COOKIES_CONTENT on Render.\nDetails: ' + failures.join(' | '));
     }
