@@ -132,12 +132,82 @@ function wrapText(ctx, text, maxW) {
   return lines;
 }
 
+// ── Reuse: the page header (avatar, name, badge, @handle) never changes for a page, so draw it ONCE and keep it.
+// Whole finished cards are kept too, so identical text (campaign lines) is not redrawn either.
+const crypto = require('crypto');
+const headerCache = new Map();
+const cardCache = new Map();
+const sha = (x) => crypto.createHash('sha1').update(String(x)).digest('hex');
+function remember(map, key, val, max) {
+  map.set(key, val);
+  if (map.size > max) map.delete(map.keys().next().value);
+  return val;
+}
+async function getHeader(o, th, d) {
+  const key = sha([o.name, o.handle, o.verified ? 1 : 0, o.avatar || '', o.theme || 'dark', d.k].join('|'));
+  if (headerCache.has(key)) return headerCache.get(key);
+  const { createCanvas, loadImage } = lib();
+  const { AV, GAP, NAME_PX, HANDLE_PX, k } = d;
+  const canvas = createCanvas(CARD_W, AV + 8);
+  const ctx = canvas.getContext('2d');
+  // avatar
+ctx.save();
+ctx.beginPath(); ctx.arc(AV / 2, AV / 2, AV / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+let drewAvatar = false;
+if (o.avatar) {
+  try {
+    const raw = String(o.avatar).replace(/^data:image\/\w+;base64,/, '');
+    const img = await loadImage(Buffer.from(raw, 'base64'));
+    const sc = Math.max(AV / img.width, AV / img.height);        // cover-crop
+    const w = img.width * sc, h = img.height * sc;
+    ctx.drawImage(img, (AV - w) / 2, (AV - h) / 2, w, h);
+    drewAvatar = true;
+  } catch { /* fall through to initial */ }
+}
+if (!drewAvatar) {
+  ctx.fillStyle = th.avatarBg; ctx.fillRect(0, 0, AV, AV);
+  ctx.fillStyle = th.name; ctx.font = fontStack(Math.round(52 * k), true);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText((String(o.name || o.handle || '?').trim()[0] || '?').toUpperCase(), AV / 2, AV / 2 + 3);
+}
+ctx.restore();
+
+// name + badge + handle (vertically centred next to the avatar)
+const tx = AV + GAP;
+ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+ctx.font = fontStack(NAME_PX, true);
+const badge = Math.round(NAME_PX * 1.0);
+const maxNameW = CARD_W - tx - (o.verified ? badge + 16 : 0);
+const rawName = String(o.name || '').trim();
+let nameStr = rawName;
+while (nameStr.length > 1 && ctx.measureText(nameStr).width > maxNameW) nameStr = nameStr.slice(0, -1);
+if (nameStr !== rawName) nameStr = nameStr.replace(/\s*\S?$/, '') + '…';
+const nameBase = Math.round(AV / 2 - 4 * k);
+ctx.fillStyle = th.name;
+ctx.fillText(nameStr, tx, nameBase);
+if (o.verified) {
+  const nw = ctx.measureText(nameStr).width;
+  drawVerifiedBadge(ctx, tx + nw + 12 + badge / 2, nameBase - NAME_PX * 0.32, badge);
+}
+ctx.font = fontStack(HANDLE_PX, false);
+ctx.fillStyle = th.handle;
+ctx.fillText(`@${String(o.handle || '').replace(/^@+/, '')}`, tx, nameBase + Math.round(HANDLE_PX * 1.35));
+  return remember(headerCache, key, canvas, 40);
+}
+
 /**
  * @param {{name:string, handle:string, verified?:boolean, avatar?:string, text:string, theme?:'dark'|'light', scale?:number}} o
  *        avatar = base64 data URL or raw base64 of a PNG/JPEG; scale = 0.8–1.5 (card size)
  * @returns {Promise<{buffer:Buffer, width:number, height:number}>}  transparent PNG, 952px wide
  */
 async function renderCard(o) {
+  const ckey = sha([!!o.plain, o.name, o.handle, o.verified ? 1 : 0, o.avatar || '', o.theme || 'dark', o.scale || 1, o.text || ''].join('|'));
+  if (cardCache.has(ckey)) return cardCache.get(ckey);
+  const out = await renderCardUncached(o);
+  return remember(cardCache, ckey, out, 60);
+}
+
+async function renderCardUncached(o) {
   setupFonts();
   const { createCanvas, loadImage } = lib();
   const th = THEMES[o.theme] || THEMES.dark;
@@ -164,48 +234,8 @@ async function renderCard(o) {
   const ctx = canvas.getContext('2d');
 
   if (!plain) {
-  // avatar
-  ctx.save();
-  ctx.beginPath(); ctx.arc(AV / 2, AV / 2, AV / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-  let drewAvatar = false;
-  if (o.avatar) {
-    try {
-      const raw = String(o.avatar).replace(/^data:image\/\w+;base64,/, '');
-      const img = await loadImage(Buffer.from(raw, 'base64'));
-      const sc = Math.max(AV / img.width, AV / img.height);        // cover-crop
-      const w = img.width * sc, h = img.height * sc;
-      ctx.drawImage(img, (AV - w) / 2, (AV - h) / 2, w, h);
-      drewAvatar = true;
-    } catch { /* fall through to initial */ }
-  }
-  if (!drewAvatar) {
-    ctx.fillStyle = th.avatarBg; ctx.fillRect(0, 0, AV, AV);
-    ctx.fillStyle = th.name; ctx.font = fontStack(Math.round(52 * k), true);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText((String(o.name || o.handle || '?').trim()[0] || '?').toUpperCase(), AV / 2, AV / 2 + 3);
-  }
-  ctx.restore();
-
-  // name + badge + handle (vertically centred next to the avatar)
-  const tx = AV + GAP;
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  ctx.font = fontStack(NAME_PX, true);
-  const badge = Math.round(NAME_PX * 1.0);
-  const maxNameW = CARD_W - tx - (o.verified ? badge + 16 : 0);
-  const rawName = String(o.name || '').trim();
-  let nameStr = rawName;
-  while (nameStr.length > 1 && ctx.measureText(nameStr).width > maxNameW) nameStr = nameStr.slice(0, -1);
-  if (nameStr !== rawName) nameStr = nameStr.replace(/\s*\S?$/, '') + '…';
-  const nameBase = Math.round(AV / 2 - 4 * k);
-  ctx.fillStyle = th.name;
-  ctx.fillText(nameStr, tx, nameBase);
-  if (o.verified) {
-    const nw = ctx.measureText(nameStr).width;
-    drawVerifiedBadge(ctx, tx + nw + 12 + badge / 2, nameBase - NAME_PX * 0.32, badge);
-  }
-  ctx.font = fontStack(HANDLE_PX, false);
-  ctx.fillStyle = th.handle;
-  ctx.fillText(`@${String(o.handle || '').replace(/^@+/, '')}`, tx, nameBase + Math.round(HANDLE_PX * 1.35));
+    const hdr = await getHeader(o, th, { k, AV, GAP, NAME_PX, HANDLE_PX });
+    ctx.drawImage(hdr, 0, 0);
   }
 
   // text
