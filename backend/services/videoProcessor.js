@@ -186,7 +186,15 @@ async function detectContentRect(videoPath) {
   return detectBarsRect(videoPath);
 }
 
+const dimsCache = new Map();
 function getVideoDimensions(videoPath) {
+  if (dimsCache.has(videoPath)) return dimsCache.get(videoPath);
+  const p = getVideoDimensionsRaw(videoPath);
+  dimsCache.set(videoPath, p);
+  const t = setTimeout(() => dimsCache.delete(videoPath), 10 * 60 * 1000); if (t.unref) t.unref();
+  return p;
+}
+function getVideoDimensionsRaw(videoPath) {
   return new Promise((resolve) => {
     execFile('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-select_streams', 'v:0', videoPath], { timeout: 15000 }, (err, stdout) => {
       if (err) return resolve({ width: 1280, height: 720 });
@@ -642,7 +650,7 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   // 7. Brand layout: scale video, place it on the canvas, overlay the card
   if (layout) {
     vFilters.push(
-      `scale=${layout.vidW}:${layout.vidH}:flags=bicubic`,
+      `scale=${layout.vidW}:${layout.vidH}:flags=${layoutQuality === 'best' ? 'bicubic' : 'fast_bilinear'}`,
       'setsar=1',
       `pad=${layout.canvasW}:${layout.canvasH}:${layout.vidX}:${layout.vidY}:color=${String(brand.canvasColor || '#000000').replace('#', '0x')}`
     );
@@ -659,11 +667,6 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   } else if (vFilters.length > 0) args.push('-vf', vFilters.join(','));
   if (aFilters.length > 0) args.push('-af', aFilters.join(','));
 
-  // DEBUG LOGGING — remove after diagnosis
-  logger.info(`[DEBUG] textOverlays received: ${JSON.stringify(textOverlays)}`);
-  logger.info(`[DEBUG] vFilters chain: ${vFilters.join(',')}`);
-  const probedDims = await getVideoDimensions(inputPath);
-  logger.info(`[DEBUG] ffprobe dims: ${probedDims.width}x${probedDims.height}`);
 
   // Quality encode (High profile, 48kHz audio) - still single-thread for Render free tier
   args.push('-c:v', 'libx264');
@@ -672,9 +675,10 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   args.push('-threads', THREADS);
   args.push('-profile:v', 'high', '-level:v', '4.1');
   args.push('-pix_fmt', 'yuv420p');
+  if (layout) args.push('-tune', 'fastdecode', '-x264-params', 'rc-lookahead=0:bframes=0:ref=1:subme=1');
   args.push('-maxrate', '12M', '-bufsize', '24M');
   args.push('-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709');
-  args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', outputPath);
+  args.push('-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-movflags', '+faststart', outputPath);
 
   await runFFmpeg(args, 'enhance');
   if (subPath && fs.existsSync(subPath)) fs.unlinkSync(subPath);
