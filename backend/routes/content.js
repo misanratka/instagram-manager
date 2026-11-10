@@ -243,9 +243,10 @@ async function buildBrandCard(req, accountId, text, dir, frame, mode, quality, t
     theme: (themeOverride === 'light' || themeOverride === 'dark') ? themeOverride : (account?.brand_theme || 'dark'),
     scale: frame?.cardScale
   });
-  const cardPath = path.join(dir, `card_${uuidv4()}.png`);
-  fs.writeFileSync(cardPath, card.buffer);
-  return { brand: { cardPath, cardH: card.height, frame: frame || null, canvasColor: card.canvasColor, quality }, card };
+  // Same card = same file on disk, written once and reused by every video (no re-draw, no re-write).
+  const cardPath = path.join(dir, `card_${require('crypto').createHash('sha1').update(card.buffer).digest('hex').slice(0, 20)}.png`);
+  if (!fs.existsSync(cardPath)) fs.writeFileSync(cardPath, card.buffer);
+  return { brand: { cardPath, keepCard: true, cardH: card.height, frame: frame || null, canvasColor: card.canvasColor, quality }, card };
 }
 
 // Live preview of the card (PNG as a data URL) for the review screen
@@ -302,7 +303,7 @@ router.post('/enhance/:postId', heavy(async (req, res, next) => {
     try {
       result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
     } finally {
-      if (brand?.cardPath && fs.existsSync(brand.cardPath)) fs.unlinkSync(brand.cardPath);
+      if (brand?.cardPath && !brand.keepCard && fs.existsSync(brand.cardPath)) fs.unlinkSync(brand.cardPath);
       logger.info(`[timing] render: ${Math.round((Date.now() - tRender) / 1000)}s`);
     }
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
