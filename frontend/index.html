@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#080A0F" />
+    <meta name="theme-color" content="#12162A" />
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -19,7 +19,7 @@
       }
 
       body {
-        background: #080A0F;
+        background: #12162A;
         color: #fff;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
         height: 100%;
@@ -37,15 +37,15 @@
       body::before, body::after { content: ''; position: fixed; inset: -25%; z-index: 0; pointer-events: none; will-change: transform; }
       body::before {
         background:
-          radial-gradient(34% 28% at 22% 16%, rgba(230,53,106,.36), transparent 70%),
-          radial-gradient(30% 26% at 82% 22%, rgba(168,85,247,.36), transparent 70%);
-        animation: drift1 28s ease-in-out infinite alternate;
+          radial-gradient(34% 28% at 22% 16%, rgba(255,77,140,.50), transparent 70%),
+          radial-gradient(30% 26% at 82% 22%, rgba(176,108,255,.50), transparent 70%);
+        animation: drift1 60s ease-in-out infinite alternate;
       }
       body::after {
         background:
-          radial-gradient(36% 30% at 72% 84%, rgba(56,189,248,.22), transparent 70%),
-          radial-gradient(28% 26% at 12% 78%, rgba(249,115,22,.20), transparent 70%);
-        animation: drift2 34s ease-in-out infinite alternate;
+          radial-gradient(36% 30% at 72% 84%, rgba(56,189,248,.34), transparent 70%),
+          radial-gradient(28% 26% at 12% 78%, rgba(255,140,50,.30), transparent 70%);
+        animation: drift2 75s ease-in-out infinite alternate;
       }
       @keyframes drift1 { from { transform: translate3d(-3%, -2%, 0) scale(1); } to { transform: translate3d(4%, 6%, 0) scale(1.1); } }
       @keyframes drift2 { from { transform: translate3d(3%, 3%, 0) scale(1.05); } to { transform: translate3d(-5%, -4%, 0) scale(.95); } }
@@ -75,9 +75,9 @@
 
       /* ---- Glass surface: soft light gradient, bright top edge, deep shadow ---- */
       .glass {
-        background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.018)) !important;
-        border-color: rgba(255,255,255,.09) !important;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 22px 44px -24px rgba(0,0,0,.85);
+        background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.05)) !important;
+        border-color: rgba(255,255,255,.16) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 18px 36px -22px rgba(0,0,0,.55);
       }
 
       /* ---- Main buttons: glow + a light sweep that passes across every few seconds ---- */
@@ -86,20 +86,20 @@
       .shine::after {
         content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 60%; pointer-events: none;
         background: linear-gradient(105deg, transparent, rgba(255,255,255,.34), transparent);
-        transform: translateX(-130%) skewX(-18deg); animation: sweep 4.2s ease-in-out infinite;
+        transform: translateX(-130%) skewX(-18deg); opacity: 0;
       }
       .shine:disabled::after { display: none; }
 
       /* ---- Floating bottom dock: gentle float + a light that travels around its edge ---- */
-      .dock { animation: bob 6s ease-in-out infinite; }
+      .dock { }
       .dock::before {
         content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
         background: conic-gradient(from var(--ang), transparent 0 62%, rgba(230,53,106,.95) 78%, rgba(168,85,247,.95) 90%, transparent 100%);
         -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
         -webkit-mask-composite: xor; mask-composite: exclude;
-        animation: spinAng 7s linear infinite;
+        opacity: .8;
       }
-      .float { animation: bob 4.5s ease-in-out infinite; }
+      .float { }
 
       #root {
         position: relative; z-index: 1;
@@ -123,15 +123,15 @@
       :root { --ease: cubic-bezier(.22,1,.36,1); }
 
       /* ---- Motion helpers (use via className) ---- */
-      .tab-enter  { animation: fadeUp .38s var(--ease) both; }
-      .fade-up    { animation: fadeUp .45s var(--ease) both; }
+      .tab-enter  { animation: fadeUp .26s var(--ease) both; }
+      .fade-up    { animation: fadeUp .3s var(--ease) both; }
       .pop-in     { animation: popIn .18s var(--ease) both; transform-origin: top right; }
       .toast      { animation: toastIn .3s var(--ease) both; }
       .expand     { animation: expand .3s var(--ease) both; transform-origin: top; }
-      .floaty     { animation: floaty 3s ease-in-out infinite; }
+      .floaty     { }
       .removing   { opacity: 0; transform: translateX(24px) scale(.96); transition: all .25s var(--ease); pointer-events: none; }
       .skeleton   {
-        background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 37%, rgba(255,255,255,.04) 63%);
+        background: linear-gradient(90deg, rgba(255,255,255,.07) 25%, rgba(255,255,255,.15) 37%, rgba(255,255,255,.07) 63%);
         background-size: 800px 100%; animation: shimmer 1.4s linear infinite; border-radius: 12px;
       }
       .card-hover { transition: transform .25s var(--ease), border-color .25s, background .25s, box-shadow .25s; }
@@ -149,8 +149,11 @@
       }
       input, textarea, select { transition: border-color .2s, box-shadow .2s, background .2s; }
       :focus-visible { outline: 2px solid rgba(168,85,247,.7); outline-offset: 2px; }
-      html { scroll-behavior: smooth; }
+      html { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+      .glass, .tilt, .card-hover { contain: layout paint; }
       body { overscroll-behavior-y: none; }
+
+      @media (max-width: 700px) { body::before, body::after { animation: none; } }
 
       /* Respect users who prefer less motion */
       @media (prefers-reduced-motion: reduce) {
@@ -167,11 +170,11 @@
         border-color: rgba(168,85,247,0.5) !important;
         box-shadow: 0 0 0 3px rgba(168,85,247,0.1);
       }
-      select option { background: #111; color: #fff; }
+      select option { background: #1b2040; color: #fff; }
 
       ::-webkit-scrollbar { width: 4px; height: 4px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
 
       input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
 
