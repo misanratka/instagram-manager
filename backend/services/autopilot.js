@@ -178,7 +178,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
     let mode = opts.layout;
     if (mode === 'card' && !String(hook || '').trim()) mode = 'text';   // no text for the card → crop only
     await call('POST', `/api/content/enhance/${proc.postId}`,
-      { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop), theme: opts.theme } }, userId, 10 * 60 * 1000);
+      { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop), theme: opts.theme, quality: opts.quality || process.env.AUTOPILOT_QUALITY || 'best' } }, userId, 10 * 60 * 1000);
 
     // 4. publish, then wait for the result
     await call('POST', `/api/posts/${proc.postId}/publish`, { account_id: page.id, caption, hookText: hook }, userId, 60 * 1000);
