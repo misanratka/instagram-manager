@@ -650,13 +650,13 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   // 7. Brand layout: scale video, place it on the canvas, overlay the card
   if (layout) {
     vFilters.push(
-      `scale=${layout.vidW}:${layout.vidH}:flags=${layoutQuality === 'best' ? 'bicubic' : 'fast_bilinear'}`,
+      `scale=${layout.vidW}:${layout.vidH}:flags=${layoutQuality === 'best' ? 'lanczos' : 'fast_bilinear'}`,
       'setsar=1',
       `pad=${layout.canvasW}:${layout.canvasH}:${layout.vidX}:${layout.vidY}:color=${String(brand.canvasColor || '#000000').replace('#', '0x')}`
     );
   }
 
-  const crf = preset?.crf || (layout ? (layoutQuality === 'best' ? '19' : '22') : enhance ? '18' : '23');
+  const crf = preset?.crf || (layout ? (layoutQuality === 'best' ? '17' : '22') : enhance ? '18' : '23');
   const args = [...inputArgs];
   if (layout) {
     args.push(
@@ -670,13 +670,13 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
 
   // Quality encode (High profile, 48kHz audio) - still single-thread for Render free tier
   args.push('-c:v', 'libx264');
-  args.push('-preset', layout ? (layoutQuality === 'best' ? 'superfast' : 'ultrafast') : 'veryfast');
+  args.push('-preset', layout ? (layoutQuality === 'best' ? 'veryfast' : 'ultrafast') : 'veryfast');
   args.push('-crf', crf);
   args.push('-threads', THREADS);
   args.push('-profile:v', 'high', '-level:v', '4.1');
   args.push('-pix_fmt', 'yuv420p');
-  if (layout) args.push('-tune', 'fastdecode', '-x264-params', 'rc-lookahead=0:bframes=0:ref=1:subme=1');
-  args.push('-maxrate', '12M', '-bufsize', '24M');
+  if (layout) args.push(...(layoutQuality === 'best' ? ['-x264-params', 'rc-lookahead=10:ref=2'] : ['-tune', 'fastdecode', '-x264-params', 'rc-lookahead=0:bframes=0:ref=1:subme=1']));
+  args.push('-maxrate', layout && layoutQuality === 'best' ? '16M' : '12M', '-bufsize', layout && layoutQuality === 'best' ? '32M' : '24M');
   args.push('-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709');
   args.push('-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-movflags', '+faststart', outputPath);
 
