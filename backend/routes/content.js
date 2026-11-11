@@ -344,7 +344,7 @@ router.post('/enhance/:postId', heavy(async (req, res, next) => {
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
     res.json({ enhancedVideoUrl: result.url, message: 'Video enhanced successfully' });
   } catch (err) { next(err); }
-}), { remote: true });
+}, { remote: true }));
 
 // Attach a video file to an existing post (used when URL was Instagram — no download)
 router.post('/attach-video/:postId', upload.single('video'), async (req, res, next) => {
