@@ -51,7 +51,7 @@ async function pageSummary(s, page) {
     paused: page.ap_paused_reason || null,
     settings: {
       per_day: page.ap_per_day ?? 2, start_hour: page.ap_start_hour ?? 9, end_hour: page.ap_end_hour ?? 22,
-      tz: page.ap_tz || null, layout: page.ap_layout === 'text' ? 'text' : 'card', credit_line: page.ap_credit_line === null || page.ap_credit_line === undefined ? true : !!page.ap_credit_line
+      tz: page.ap_tz || null, layout: ['text', 'clean', 'cinema'].includes(page.ap_layout) ? page.ap_layout : 'card', credit_line: page.ap_credit_line === null || page.ap_credit_line === undefined ? true : !!page.ap_credit_line
     },
     today: { posted: done, target: slots.length, next_slot: next ? next.toISOString() : null, tz },
     queue: { queued: counts.queued || 0, processing: counts.processing || 0, posted: counts.posted || 0, failed: counts.failed || 0 },
@@ -106,7 +106,7 @@ router.put('/:accountId/settings', async (req, res, next) => {
       s.tz = b.tz;
     }
     if (b.layout !== undefined) {
-      if (!['card', 'text'].includes(b.layout)) return res.status(400).json({ error: 'Layout must be card or text.' });
+      if (!['card', 'text', 'clean', 'cinema'].includes(b.layout)) return res.status(400).json({ error: 'Layout must be card, text, clean or cinema.' });
       s.layout = b.layout;
     }
     if (b.credit_line !== undefined) s.credit_line = b.credit_line === true || b.credit_line === 'true' || b.credit_line === 1;
