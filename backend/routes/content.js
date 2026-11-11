@@ -8,6 +8,7 @@ const { downloadVideo, getVideoMetadata } = require('../services/downloader');
 const { transcribeVideo, segmentsToSRT } = require('../services/transcription');
 const { generateContent, generateSubtitleLines } = require('../services/captionGenerator');
 const { enhanceVideo, renderFramed, detectContentRect } = require('../services/videoProcessor');
+const remoteRender = require('../services/remoteRender');
 const { renderCard } = require('../services/brandCard');
 const { assessClip, extractCredit } = require('../services/contentGuard');
 const logger = require('../services/logger');
@@ -53,15 +54,20 @@ setInterval(() => {
 
 let heavyChain = Promise.resolve();
 let heavyWaiting = 0;
-function runHeavy(fn) {
+function runHeavyLocal(fn) {
   heavyWaiting++;
   const p = heavyChain.then(() => { heavyWaiting--; return fn(); });
   heavyChain = p.catch(() => {});
   return p;
 }
 
-function heavy(handler) {
+// Card/framed renders can go to a free render worker (see remoteRender.js). Those jobs skip the local one-at-a-time
+// line so several videos render at once; if no worker is free they wait in the local line like before.
+function heavy(handler, opts = {}) {
   return (req, res, next) => {
+    const w = opts.remote && req.body && req.body.brandCard && req.body.brandCard.enabled ? remoteRender.reserve() : null;
+    req.renderWorker = w;
+    const runHeavy = w ? (fn) => fn().finally(() => remoteRender.release(w)) : runHeavyLocal;
     if (req.headers['x-async'] !== '1') return runHeavy(() => handler(req, res, next)).catch(next);
     const id = uuidv4();
     const job = { status: 'queued', queuedAt: Date.now() };
@@ -308,10 +314,29 @@ router.post('/enhance/:postId', heavy(async (req, res, next) => {
 
     let result;
     const tRender = Date.now();
+    const doLocal = () => framedMode
+      ? renderFramed({ inputPath, frame: brandCard.frame, trim, quality: brandCard.quality || 'best', card: framedCard })
+      : enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
     try {
-      result = framedMode
-        ? await renderFramed({ inputPath, frame: brandCard.frame, trim, quality: brandCard.quality || 'best', card: framedCard })
-        : await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
+      if (req.renderWorker) {
+        // A free render worker is reserved for this job; if it fails, render here instead (waiting in the local line).
+        try {
+          result = framedMode
+            ? await remoteRender.renderOn(req.renderWorker, { kind: 'framed', inputPath, card: framedCard, payload: { frame: brandCard.frame, trim, quality: brandCard.quality || 'best' } })
+            : await remoteRender.renderOn(req.renderWorker, {
+                kind: 'layout', inputPath, card: brand && { cardPath: brand.cardPath, width: 0, height: brand.cardH },
+                payload: {
+                  params: { srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio },
+                  brand: { cardH: brand.cardH, frame: brand.frame, canvasColor: brand.canvasColor, quality: brand.quality }
+                }
+              });
+        } catch (e) {
+          logger.warn('Render worker failed, rendering here instead: ' + e.message);
+          result = await runHeavyLocal(doLocal);
+        }
+      } else {
+        result = await doLocal();
+      }
     } finally {
       if (brand?.cardPath && !brand.keepCard && fs.existsSync(brand.cardPath)) fs.unlinkSync(brand.cardPath);
       logger.info(`[timing] render: ${Math.round((Date.now() - tRender) / 1000)}s`);
@@ -319,7 +344,7 @@ router.post('/enhance/:postId', heavy(async (req, res, next) => {
     await getDB().run('UPDATE posts SET enhanced_video_path=$1 WHERE id=$2', [result.path, post.id]);
     res.json({ enhancedVideoUrl: result.url, message: 'Video enhanced successfully' });
   } catch (err) { next(err); }
-}));
+}), { remote: true });
 
 // Attach a video file to an existing post (used when URL was Instagram — no download)
 router.post('/attach-video/:postId', upload.single('video'), async (req, res, next) => {
