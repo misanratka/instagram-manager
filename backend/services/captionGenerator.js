@@ -50,7 +50,7 @@ const PROMPT_HEAD = `You are an elite ghostwriter running top-performing FACELES
 
 Your job is NOT to describe the clip frame by frame. Write the page's own original take on it, like a real person running the account who watched it and has something to say. Two captions for the same clip should never read the same way twice.
 
-Your writing must sound native to current Western internet culture (USA, UK, Canada English) — modern, conversational, punchy, high-energy. Avoid robotic phrasing and generic AI-caption patterns. Never quote or reproduce song lyrics, movie dialogue verbatim, or any copyrighted text — describe the moment, don't copy it. Never invent stats, records, or facts that are not in the video, transcript, or original caption; if you are unsure of a number, speak about the significance instead.
+Your writing must sound native to current Western internet culture (USA, UK, Canada English) — modern, conversational, punchy, high-energy. Avoid robotic phrasing and generic AI-caption patterns. Never quote or reproduce song lyrics, movie dialogue verbatim, or any copyrighted text — describe the moment, don't copy it. Never invent stats, records, dates or facts. Well-documented public facts you are highly confident about are welcome, as is anything in the video, transcript, title or original caption; if you are unsure of a number, speak about the significance instead.
 
 ${NICHE_GUIDES}
 
@@ -62,19 +62,31 @@ You MUST follow this EXACT structure for every video, no exceptions:
 • Must create curiosity or trigger an emotional reaction (humor, nostalgia, awe, relatable truth) and stop the scroll
 • The on-screen text must be about what really happens in the clip; it sharpens the clip's meaning and never changes or contradicts it. No random memes or lines that could sit on any video
 
-2. CAPTION PARAGRAPH 1 — THE HOOK & CONTEXT
-• 2–3 sentences
-• Instantly summarize the event/clip/song/news/idea with maximum energy
-• Subject + core action + setting or timeframe, with 2–3 emojis
+2. CAPTION PARAGRAPH 1 — WHAT IT IS
+• 3–4 sentences, about 55–85 words
+• Open with the date or occasion if it is known, then say plainly what the clip/song/moment is, who is in it, what they do, and what it looks and sounds like, in the order it unfolds
+• Calm, confident, declarative storytelling — an editor explaining something worth knowing, not shouting. No emoji in this paragraph
 
-3. CAPTION PARAGRAPH 2 — THE DEEP DIVE & VALUE
-• 4–6 sentences — this is the detailed part: who/what is involved, what exactly happens, the background or backstory, the cultural significance, and why it matters right now
-• Only facts you can support from the video, transcript, original caption, or verified context. Depth must come from insight, context, and significance — never from invented stats, dates, quotes, or records
-• 2–3 emojis
+3. CAPTION PARAGRAPH 2 — THE BACKGROUND & THE FACTS
+• 3–5 sentences, about 60–95 words
+• The story behind it: what it belongs to (album, film, show, event), how it was received, where it landed, what it was the first/last/biggest of, and why that matters
+• Be specific: exact dates, chart positions, records, names, order of events. Use a specific figure ONLY when it is well-documented public record you are highly confident about, or it appears in the video, transcript, title or original caption. If you are not sure of a number or date, leave it out and write about the significance instead. A wrong fact is worse than a missing one
+• No emoji in this paragraph
 
-4. CAPTION PARAGRAPH 3 — CALL TO ACTION
-• 2 sentences
-• A low-friction, open-ended question related to the topic that drives comments, plus a short action line (e.g. "Let us know below! 👇")
+4. CAPTION PARAGRAPH 3 — THE CLOSING TAKE
+• 2–3 sentences, about 35–55 words
+• What makes this version/moment special and what to notice in it (the details, the control, the craft, the atmosphere), in an appreciative editorial voice
+• End the paragraph with exactly ONE fitting emoji as the very last character (for example ✨). This is the only emoji in the caption body
+• No question to the audience and no "comment below" line, unless the post-specific instructions ask for one
+
+LENGTH & VOICE FOR THE WHOLE CAPTION: about 150–240 words in total across the three paragraphs. Fact-rich, smooth, flowing prose in full sentences; every sentence adds information or insight. No filler, no hype words, no "you won't believe", no hashtags in the body.
+
+STYLE REFERENCE (copy the structure, depth, rhythm and tone only; NEVER reuse its facts or wording for a different clip):
+"Released on March 20, 2016, the acappella video for "Dangerous Woman" stripped away the instrumental and put her vocals front and center. Wearing the black latex bunny mask associated with the album, Ariana performed against a simple backdrop, moving from the softer verses into the soaring chorus. She even sang her way through the guitar-solo section.
+
+The song became the lead single and title track of her third studio album. It debuted at No. 10 on the Billboard Hot 100 and later peaked at No. 8. Its debut also made Ariana the first artist to launch the lead single from each of her first three albums directly into the chart's top 10.
+
+The full production gives the song its dramatic build, but this version lets you appreciate her phrasing, control, and all those little vocal details on their own. Her singing the instrumental parts is the finishing touch. ✨"
 
 `;
 
@@ -392,7 +404,7 @@ async function generateWithGroq({ transcript, originalCaption, videoTitle, capti
       { role: 'system', content: buildSystemPrompt(o) },
       { role: 'user',   content: `${context}\n\nCaption style: ${style}\n\nGenerate the on-screen text and caption now:` }
     ],
-    max_tokens: 1800,
+    max_tokens: 2400,
     temperature: 0.95
   });
   return parseResponse(completion.choices[0].message.content, allowed, o);
