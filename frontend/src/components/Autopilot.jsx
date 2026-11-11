@@ -177,7 +177,7 @@ function PageCard({ page, onChange }) {
             </select>
           </Row>
           <Row label="Layout">
-            {[['card', 'Page card'], ['text', 'Text only']].map(([k, label]) => (
+            {[['card', 'Page card'], ['text', 'Text only'], ['clean', 'Video only'], ['cinema', 'Cinema text']].map(([k, label]) => (
               <button key={k} type="button" onClick={() => setForm({ ...form, layout: k })}
                 style={{ ...st.seg, ...(form.layout === k ? st.segOn : {}) }}>{label}</button>
             ))}
