@@ -156,7 +156,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
     }
 
     // 1. download + transcribe + write caption and on-screen text
-    const proc = await call('POST', '/api/content/process-url', { url: item.url, account_id: page.id, ...reqOpts }, userId, 5 * 60 * 1000);
+    const proc = await call('POST', '/api/content/process-url', { url: item.url, account_id: page.id, ...reqOpts }, userId, 12 * 60 * 1000);
     if (proc.instagramUrl || proc.captionSkipped) {
       throw new Error('Download blocked' + (proc.downloadError ? `: ${String(proc.downloadError).split('\n')[0]}` : ''));
     }
@@ -175,7 +175,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
       const missing = verifyRules({ caption, hookText: hook }, opts);
       if (!missing.length) break;
       if (i >= 2) throw new Error('Rule check failed. Missing: ' + missing.join('; '));
-      const r = await call('POST', `/api/content/regenerate/${proc.postId}`, { account_id: page.id, ...reqOpts }, userId, 4 * 60 * 1000);
+      const r = await call('POST', `/api/content/regenerate/${proc.postId}`, { account_id: page.id, ...reqOpts }, userId, 8 * 60 * 1000);
       caption = r.generatedCaption; hook = r.hookText;
     }
 
@@ -184,7 +184,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
     if (mode === 'card' && !String(hook || '').trim()) mode = 'text';   // no text for the card → crop only
     if (mode === 'cinema' && !String(hook || '').trim()) mode = 'clean';   // no text for the cinema line → plain video
     await call('POST', `/api/content/enhance/${proc.postId}`,
-      { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop), theme: opts.theme, quality: opts.quality || process.env.AUTOPILOT_QUALITY || 'best' } }, userId, 10 * 60 * 1000);
+      { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop), theme: opts.theme, quality: opts.quality || process.env.AUTOPILOT_QUALITY || 'best' } }, userId, 30 * 60 * 1000);
 
     // 4. publish, then wait for the result
     await call('POST', `/api/posts/${proc.postId}/publish`, { account_id: page.id, caption, hookText: hook }, userId, 60 * 1000);
