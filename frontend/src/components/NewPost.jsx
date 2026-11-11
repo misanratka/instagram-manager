@@ -72,7 +72,7 @@ export default function NewPost() {
   const [capOpts, setCapOpts]             = useState({});
   const [badPreview, setBadPreview]       = useState('');
   const [captionBusy, setCaptionBusy]     = useState(false);
-  const [layout, setLayoutState]         = useState(() => { try { return localStorage.getItem('im_layout') === 'text' ? 'text' : 'card'; } catch { return 'card'; } });
+  const [layout, setLayoutState]         = useState(() => { try { return (v => (['text', 'clean', 'cinema'].includes(v) ? v : 'card'))(localStorage.getItem('im_layout')); } catch { return 'card'; } });
   const setLayout = (v) => { setLayoutState(v); try { localStorage.setItem('im_layout', v); } catch { /* ignore */ } };
   // Card background: 'auto' = the page's own theme, or force black / white for this post
   const [theme, setThemeState]            = useState(() => { try { const t = localStorage.getItem('im_theme'); return t === 'dark' || t === 'light' ? t : 'auto'; } catch { return 'auto'; } });
@@ -324,8 +324,9 @@ export default function NewPost() {
   const onProcessJob = (j) => setJobInfo(j);
   const onRenderJob  = (j) => setSuccess(j.status === 'queued' ? 'Rendering video… waiting for another job to finish' : `Rendering video… ${j.elapsed_s || 0}s`);
   const enhanceJob   = (id, opts) => api.enhanceVideo(id, opts, onRenderJob);
-  const frameMode = layout === 'text' || !!accountId;                          // show the frame editor (crop + live preview)
-  const cardOn    = frameMode && (layout === 'text' || !!onScreenText.trim());   // render the 1080x1920 layout when posting
+  const framed    = layout === 'clean' || layout === 'cinema';                  // direct 3:4 / 4:3 video, no page card
+  const frameMode = !framed && (layout === 'text' || !!accountId);                          // show the frame editor (crop + live preview)
+  const cardOn    = framed || (frameMode && (layout === 'text' || !!onScreenText.trim()));   // render the 1080x1920 layout when posting
   const srcUrl    = mediaUrl(result?.videoUrl);
   const cardOpts = () => (cardOn ? { ...(accountId ? { account_id: accountId } : {}), brandCard: { enabled: true, mode: layout, text: onScreenText, frame, quality, ...(theme !== 'auto' ? { theme } : {}) } } : {});
   useEffect(() => {
@@ -406,9 +407,9 @@ export default function NewPost() {
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Layout</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              {[['card', 'Page card'], ['text', 'Text only']].map(([key, label]) => (
+              {[['card', 'Page card'], ['text', 'Text only'], ['clean', 'Video only'], ['cinema', 'Cinema']].map(([key, label]) => (
                 <button key={key} type="button" onClick={() => setLayout(key)}
-                  style={{ flex: 1, padding: '11px 10px', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  style={{ flex: 1, padding: '11px 6px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                     background: layout === key ? 'rgba(168,85,247,0.15)' : '#111',
                     border: `1px solid ${layout === key ? 'rgba(168,85,247,0.5)' : '#2a2a2a'}`,
                     color: layout === key ? '#c084fc' : '#999' }}>
@@ -431,6 +432,8 @@ export default function NewPost() {
             {layout === 'card' && !accountId && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 8 }}>Pick a page below to use the page card, or switch to Text only.</div>}
             {layout === 'card' && !!accountId && !onScreenText.trim() && <div style={{ fontSize: 11, color: '#f0a060', marginTop: 8 }}>Add on-screen text above to use the page card.</div>}
             {layout === 'text' && <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Just the text line above the video. No page picture, name or handle. You can still post to any page.</div>}
+            {layout === 'clean' && <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Just the video at 3:4 (tall) or 4:3 (wide), high quality. No card, no text on the video. Only the caption.</div>}
+            {layout === 'cinema' && <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>Video at 3:4 or 4:3 with the on-screen text above laid over the lower part of the picture, like cinema pages. No card.</div>}
             {cardOn && (
               <div style={{ marginTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Quality</div>
