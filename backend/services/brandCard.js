@@ -201,13 +201,31 @@ ctx.fillText(`@${String(o.handle || '').replace(/^@+/, '')}`, tx, nameBase + Mat
  * @returns {Promise<{buffer:Buffer, width:number, height:number}>}  transparent PNG, 952px wide
  */
 async function renderCard(o) {
-  const ckey = sha([!!o.plain, o.name, o.handle, o.verified ? 1 : 0, o.avatar || '', o.theme || 'dark', o.scale || 1, o.text || ''].join('|'));
+  const ckey = sha([!!o.plain, !!o.subtitle, o.name, o.handle, o.verified ? 1 : 0, o.avatar || '', o.theme || 'dark', o.scale || 1, o.text || ''].join('|'));
   if (cardCache.has(ckey)) return cardCache.get(ckey);
   const out = await renderCardUncached(o);
   return remember(cardCache, ckey, out, 60);
 }
 
+async function renderSubtitle(o) {
+  // Cinema-page look: centred bold white text with a dark outline, drawn over the video (transparent PNG).
+  setupFonts();
+  const { createCanvas } = lib();
+  const PX = 46, LINE = 60;
+  const probe = createCanvas(10, 10).getContext('2d');
+  probe.font = fontStack(PX, 700);
+  let lines = wrapText(probe, String(o.text || '').trim(), CARD_W - 40).slice(0, 3);
+  const h = lines.length * LINE + 20;
+  const canvas = createCanvas(CARD_W, h);
+  const ctx = canvas.getContext('2d');
+  ctx.font = fontStack(PX, 700); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.fillStyle = '#ffffff';
+  lines.forEach((ln, i) => { const y = Math.round(PX * 0.95) + 6 + i * LINE; ctx.strokeText(ln, CARD_W / 2, y); ctx.fillText(ln, CARD_W / 2, y); });
+  return { buffer: canvas.toBuffer('image/png'), width: CARD_W, height: h, canvasColor: '#000000' };
+}
+
 async function renderCardUncached(o) {
+  if (o.subtitle && String(o.text || '').trim()) return renderSubtitle(o);
   setupFonts();
   const { createCanvas, loadImage } = lib();
   const th = THEMES[o.theme] || THEMES.dark;
