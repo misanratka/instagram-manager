@@ -7,7 +7,7 @@ const { getDB } = require('../models/db');
 const { downloadVideo, getVideoMetadata } = require('../services/downloader');
 const { transcribeVideo, segmentsToSRT } = require('../services/transcription');
 const { generateContent, generateSubtitleLines } = require('../services/captionGenerator');
-const { enhanceVideo, detectContentRect } = require('../services/videoProcessor');
+const { enhanceVideo, renderFramed, detectContentRect } = require('../services/videoProcessor');
 const { renderCard } = require('../services/brandCard');
 const { assessClip, extractCredit } = require('../services/contentGuard');
 const logger = require('../services/logger');
@@ -291,17 +291,27 @@ router.post('/enhance/:postId', heavy(async (req, res, next) => {
       return res.status(400).json({ error: 'Select at least one editing or enhancement option' });
 
     // Page card layout (card on top, video below). Name/handle fall back to the connected account's own.
-    let brand = null;
-    if (wantsCard) {
+    // 'clean' / 'cinema' = direct 3:4 or 4:3 video (no page card). Cinema puts subtitle-style text over the video.
+    const framedMode = wantsCard && ['clean', 'cinema'].includes(brandCard.mode);
+    let brand = null, framedCard = null;
+    if (wantsCard && !framedMode) {
       const built = await buildBrandCard(req, account_id || post.account_id, brandCard.text, path.dirname(inputPath), brandCard.frame, brandCard.mode, brandCard.quality, brandCard.theme);
       if (built.error) return res.status(built.status).json({ error: built.error });
       brand = built.brand;
+    }
+    if (framedMode && brandCard.mode === 'cinema' && String(brandCard.text || '').trim()) {
+      const c = await renderCard({ plain: true, subtitle: true, text: String(brandCard.text).trim() });
+      const cp = path.join(path.dirname(inputPath), `card_${require('crypto').createHash('sha1').update(c.buffer).digest('hex').slice(0, 20)}.png`);
+      if (!fs.existsSync(cp)) fs.writeFileSync(cp, c.buffer);
+      framedCard = { cardPath: cp, width: c.width, height: c.height };
     }
 
     let result;
     const tRender = Date.now();
     try {
-      result = await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
+      result = framedMode
+        ? await renderFramed({ inputPath, frame: brandCard.frame, trim, quality: brandCard.quality || 'best', card: framedCard })
+        : await enhanceVideo({ inputPath, srtContent: post.subtitles_srt || '', segments: segments || [], textOverlays, burnSubtitles, subtitleStyle, enhance, trim, adjustments, speed, cropRatio, brand });
     } finally {
       if (brand?.cardPath && !brand.keepCard && fs.existsSync(brand.cardPath)) fs.unlinkSync(brand.cardPath);
       logger.info(`[timing] render: ${Math.round((Date.now() - tRender) / 1000)}s`);
