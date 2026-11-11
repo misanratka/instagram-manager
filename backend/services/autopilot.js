@@ -95,7 +95,7 @@ function mergeOptions(page, itemOptions) {
     tos_exact: o.tos_exact,
     tos_must_include: o.tos_must_include,
     credit_line: o.credit_line !== undefined ? o.credit_line : !!(page.ap_credit_line ?? 1),
-    layout: o.layout === 'text' || o.layout === 'card' ? o.layout : (page.ap_layout === 'text' ? 'text' : 'card'),
+    layout: LAYOUTS.includes(o.layout) ? o.layout : (LAYOUTS.includes(page.ap_layout) ? page.ap_layout : 'card'),
     theme: o.theme === 'light' || o.theme === 'dark' ? o.theme : undefined   // undefined = the page's own card theme
   };
 }
@@ -119,6 +119,8 @@ function verifyRules({ caption, hookText }, opts) {
   else for (const p of list(opts.tos_must_include, /\n+/)) if (!hook.includes(p)) missing.push(`on-screen text "${p}"`);
   return missing;
 }
+
+const LAYOUTS = ['card', 'text', 'clean', 'cinema'];
 
 function fullFrame(autoCrop) {
   return autoCrop
@@ -177,6 +179,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
     // 3. render the layout (card on top, video below)
     let mode = opts.layout;
     if (mode === 'card' && !String(hook || '').trim()) mode = 'text';   // no text for the card → crop only
+    if (mode === 'cinema' && !String(hook || '').trim()) mode = 'clean';   // no text for the cinema line → plain video
     await call('POST', `/api/content/enhance/${proc.postId}`,
       { account_id: page.id, brandCard: { enabled: true, mode, text: hook || '', frame: fullFrame(proc.autoCrop), theme: opts.theme, quality: opts.quality || process.env.AUTOPILOT_QUALITY || 'best' } }, userId, 10 * 60 * 1000);
 
