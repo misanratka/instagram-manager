@@ -52,22 +52,34 @@ setInterval(() => {
   for (const [id, j] of jobs) if ((j.finishedAt || j.queuedAt) < cutoff) jobs.delete(id);
 }, 5 * 60 * 1000).unref();
 
-let heavyChain = Promise.resolve();
-let heavyWaiting = 0;
-function runHeavyLocal(fn) {
-  heavyWaiting++;
-  const p = heavyChain.then(() => { heavyWaiting--; return fn(); });
-  heavyChain = p.catch(() => {});
-  return p;
+// Two lanes so a download never waits behind a video render:
+//  • download lane (link fetch, upload, transcribe, caption): up to DOWNLOAD_PARALLEL at once (default = AUTOPILOT_PARALLEL, min 1)
+//  • render lane (rendering on THIS server): one at a time. Renders sent to a free worker skip this lane.
+function makeLane(limit) {
+  let active = 0;
+  const queue = [];
+  const next = () => {
+    while (active < limit() && queue.length) {
+      const { fn, resolve, reject } = queue.shift();
+      active++;
+      Promise.resolve().then(fn).then(resolve, reject).finally(() => { active--; next(); });
+    }
+  };
+  return { run: (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); next(); }), waiting: () => queue.length };
 }
+const downloadLane = makeLane(() => Math.max(1, Math.min(4, Number(process.env.DOWNLOAD_PARALLEL || process.env.AUTOPILOT_PARALLEL) || 1)));
+const renderLane = makeLane(() => 1);
+const heavyWaiting = () => downloadLane.waiting() + renderLane.waiting();
+const runHeavyLocal = (fn) => renderLane.run(fn);
 
-// Card/framed renders can go to a free render worker (see remoteRender.js). Those jobs skip the local one-at-a-time
-// line so several videos render at once; if no worker is free they wait in the local line like before.
+// Card/framed renders can go to a free render worker (see remoteRender.js). Those jobs skip the local render lane
+// so several videos render at once; if no worker is free they wait in the local render lane like before.
 function heavy(handler, opts = {}) {
+  const lane = opts.lane === 'download' ? downloadLane : renderLane;
   return (req, res, next) => {
     const w = opts.remote && req.body && req.body.brandCard && req.body.brandCard.enabled ? remoteRender.reserve() : null;
     req.renderWorker = w;
-    const runHeavy = w ? (fn) => fn().finally(() => remoteRender.release(w)) : runHeavyLocal;
+    const runHeavy = w ? (fn) => fn().finally(() => remoteRender.release(w)) : (fn) => lane.run(fn);
     if (req.headers['x-async'] !== '1') return runHeavy(() => handler(req, res, next)).catch(next);
     const id = uuidv4();
     const job = { status: 'queued', queuedAt: Date.now() };
@@ -81,7 +93,7 @@ function heavy(handler, opts = {}) {
     runHeavy(async () => { job.status = 'running'; job.startedAt = Date.now(); await handler(req, fakeRes, fail); })
       .catch(fail)
       .finally(() => { if (job.status === 'running') fail(new Error('Finished without a result')); });
-    res.status(202).json({ jobId: id, waiting_behind: Math.max(0, heavyWaiting - 1) });
+    res.status(202).json({ jobId: id, waiting_behind: Math.max(0, heavyWaiting() - 1) });
   };
 }
 
@@ -91,7 +103,7 @@ router.get('/job/:id', (req, res) => {
   const base = {
     status: j.status,
     elapsed_s: Math.round(((j.finishedAt || Date.now()) - (j.startedAt || j.queuedAt)) / 1000),
-    waiting_behind: j.status === 'queued' ? heavyWaiting : 0
+    waiting_behind: j.status === 'queued' ? heavyWaiting() : 0
   };
   if (j.status === 'done') return res.json({ ...base, result: j.body });
   if (j.status === 'error') return res.json({ ...base, error: j.body?.error || 'Failed' });
@@ -207,7 +219,7 @@ router.post('/process-url', heavy(async (req, res, next) => {
       guard: guard || null,
     });
   } catch (err) { next(err); }
-}));
+}, { lane: 'download' }));
 
 router.post('/process-file', upload.single('video'), heavy(async (req, res, next) => {
   try {
@@ -228,7 +240,7 @@ router.post('/process-file', upload.single('video'), heavy(async (req, res, next
 
     res.json({ postId, videoUrl, transcript: transcript.substring(0, 600), generatedCaption: caption, hookText, srtContent, onScreenSuggestions, autoCrop: autoCrop || null, guard: guard || null });
   } catch (err) { next(err); }
-}));
+}, { lane: 'download' }));
 
 // Renders the page card to a temp PNG. Returns { brand } or { error, status }.
 async function buildBrandCard(req, accountId, text, dir, frame, mode, quality, themeOverride) {
