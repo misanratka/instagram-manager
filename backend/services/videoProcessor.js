@@ -689,6 +689,47 @@ async function enhanceVideo({ inputPath, srtContent, segments, textOverlays = []
   return { path: outputPath, filename: outFilename, url: `${base}/uploads/${outFilename}` };
 }
 
+// ── Direct 3:4 / 4:3 video ("clean" = nothing added, "cinema" = subtitle-style text over the video) ──────────
+// Portrait sources become 3:4 (1080x1440), landscape sources 4:3 (1080x810). If the picture is already close to the
+// ratio it is scaled to fill it; otherwise it is fitted whole with black bars (nothing important is cut off).
+async function renderFramed({ inputPath, frame, trim, quality = 'best', card }) {
+  const outFilename = `enhanced_${uuidv4()}.mp4`;
+  const outputPath = path.join(getUploadDir(), outFilename);
+  const dims = await getVideoDimensions(inputPath);
+  const f = frameCrop(dims.width, dims.height, frame || {});
+  const portrait = f.h >= f.w;
+  const TW = 1080, TH = portrait ? 1440 : 810;
+  const srcRatio = f.w / f.h, tgtRatio = TW / TH;
+  const best = quality !== 'fast';
+  const flags = best ? 'lanczos' : 'bilinear';
+  const fit = Math.abs(srcRatio / tgtRatio - 1) <= 0.08
+    ? `scale=${TW}:${TH}:force_original_aspect_ratio=increase:flags=${flags},crop=${TW}:${TH}`
+    : `scale=${TW}:${TH}:force_original_aspect_ratio=decrease:flags=${flags},pad=${TW}:${TH}:(ow-iw)/2:(oh-ih)/2:color=black`;
+  const chain = [...f.filters, fit, 'setsar=1'].join(',');
+
+  const args = ['-y', '-threads', THREADS];
+  const ts = Number(trim?.start) || 0, te = Number(trim?.end) || 0;
+  if (ts > 0) args.push('-ss', ts.toFixed(3));
+  args.push('-i', inputPath);
+  if (te > ts && te > 0) args.push('-t', (te - ts).toFixed(3));
+  if (card?.cardPath) {
+    const x = Math.round((TW - card.width) / 2), y = TH - card.height - Math.round(TH * 0.07);
+    args.push('-loop', '1', '-i', card.cardPath,
+      '-filter_complex', `[0:v]${chain}[bg];[bg][1:v]overlay=${x}:${y}:shortest=1,format=yuv420p[vout]`,
+      '-map', '[vout]', '-map', '0:a?');
+  } else {
+    args.push('-vf', `${chain},format=yuv420p`);
+  }
+  args.push('-c:v', 'libx264', '-preset', best ? 'veryfast' : 'ultrafast', '-crf', best ? '17' : '21',
+    '-threads', THREADS, '-profile:v', 'high', '-level:v', '4.1', '-pix_fmt', 'yuv420p',
+    '-maxrate', best ? '16M' : '10M', '-bufsize', best ? '32M' : '20M',
+    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', outputPath);
+  await runFFmpeg(args, 'framed');
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  return { path: outputPath, filename: outFilename, url: `${base}/uploads/${outFilename}` };
+}
+
 async function extractAudio(videoPath) {
   const uploadDir = getUploadDir();
   const audioPath = path.join(uploadDir, `audio_${uuidv4()}.mp3`);
@@ -710,4 +751,4 @@ function getVideoDuration(videoPath) {
   });
 }
 
-module.exports = { enhanceVideo, extractAudio, getVideoDuration, detectContentRect, detectMainVideoRect, extractFrames };
+module.exports = { enhanceVideo, renderFramed, extractAudio, getVideoDuration, detectContentRect, detectMainVideoRect, extractFrames };
