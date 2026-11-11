@@ -130,7 +130,10 @@ function fullFrame(autoCrop) {
 
 // ── the engine (dependencies are injected so it can be tested) ───────────────
 function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => new Promise(r => setTimeout(r, ms)), pollMs = 20000 }) {
-  let busy = false;
+  // How many posts may be made at the same time (default 1). Raise with AUTOPILOT_PARALLEL=2 once render workers are connected.
+  let running = 0;
+  const activePages = new Set();   // a page never makes two posts at once
+  const maxParallel = () => Math.max(1, Math.min(4, Number(process.env.AUTOPILOT_PARALLEL) || 1));
 
   async function runItem(item, page) {
     const userId = page.user_id || undefined;
@@ -222,10 +225,11 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
 
   /** Looks for ONE due page and starts its next queued item in the background. */
   async function tick({ accountId, force = false } = {}) {
-    if (busy) return { started: null, reason: 'busy' };
+    if (running >= maxParallel() || (accountId && activePages.has(accountId))) return { started: null, reason: 'busy' };
     const t = now();
     const pages = await store.listPages(accountId, { enabledOnly: !force });
     for (const page of pages) {
+      if (activePages.has(page.id)) continue;
       if (page.ap_paused_reason && !force) continue;
       if (!force) {
         const { slots, dayStart } = computeSlots(page, t);
@@ -234,10 +238,10 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
       }
       const item = await store.nextQueued(page.id);
       if (!item) continue;
-      busy = true;
+      running++; activePages.add(page.id);
       const attemptsBefore = item.attempts || 0;   // read before markProcessing counts this try
       await store.markProcessing(item.id, t.toISOString());
-      const job = finishItem({ ...item, attempts: attemptsBefore }, page).finally(() => { busy = false; });
+      const job = finishItem({ ...item, attempts: attemptsBefore }, page).finally(() => { running--; activePages.delete(page.id); });
       return { started: { accountId: page.id, itemId: item.id }, job };
     }
     return { started: null, reason: 'nothing due' };
@@ -252,7 +256,7 @@ function createAutopilot({ store, call, now = () => new Date(), sleep = (ms) => 
     }
   }
 
-  return { tick, recoverStale, runItem, isBusy: () => busy };
+  return { tick, recoverStale, runItem, isBusy: () => running >= maxParallel() };
 }
 
 function safeJson(s) { try { return s ? JSON.parse(s) : {}; } catch { return {}; } }
