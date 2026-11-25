@@ -92,7 +92,16 @@ export default function AccountManager() {
       react_name: a.react_name || '', react_handle: a.react_handle || '', react_verified: !!a.react_verified, react_avatar: a.react_avatar || '' });
     setError(''); setSuccess(''); setShowForm(true);
   }
-  function cancel() { setShowForm(false); setEditId(null); setError(''); }
+  function cancel() { setShowForm(false); setEditId(null); setError(''); setRpMsg(null); }
+
+  async function saveReaction() {
+    setRpMsg(null);
+    try {
+      const r = await api.saveReactionProfile(editId, { react_name: form.react_name, react_handle: form.react_handle, react_verified: form.react_verified, react_avatar: form.react_avatar });
+      setRpMsg({ ok: true, text: `Saved: ${r.react_name} @${r.react_handle}. Picture ${r.picture_saved ? 'saved ✓' : 'not set'}.` });
+      await load();
+    } catch (err) { setRpMsg({ ok: false, text: err.message || 'Could not save' }); }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault(); setError(''); setLoading(true);
@@ -111,6 +120,7 @@ export default function AccountManager() {
   }
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+  const [rpMsg, setRpMsg] = useState(null);   // result of "Save reaction profile"
 
   return (
     <div>
@@ -246,8 +256,11 @@ export default function AccountManager() {
                 <Field label="Handle">
                   <input style={s.input} value={form.react_handle} onChange={e => set('react_handle', e.target.value.replace(/^@+/, ''))} placeholder="kayleigh22" />
                 </Field>
+                <button type="button" onClick={saveReaction} style={{ ...s.submitBtn, width: '100%' }}>Save reaction profile</button>
+                {rpMsg && <div style={{ marginTop: 10, fontSize: 13, color: rpMsg.ok ? '#70e090' : '#ff8080' }}>{rpMsg.text}</div>}
               </div>
             )}
+            {error && <div style={{ color: '#ff8080', fontSize: 13, marginBottom: 12 }}>{error}</div>}
             <div style={s.formBtns}>
               <button type="button" onClick={cancel} style={s.cancelBtn}>Cancel</button>
               <button type="submit" disabled={loading} style={s.submitBtn}>
@@ -280,6 +293,7 @@ export default function AccountManager() {
                 <div style={s.acctName}>{a.name}</div>
                 <div style={s.acctHandle}>@{a.username || a.ig_user_id}</div>
                 <div style={{ ...s.stylePillStatic }}>{a.caption_style}</div>
+                {a.react_name && <div style={{ color: '#667', fontSize: 12, marginTop: 6 }}>Reaction: {a.react_name} @{a.react_handle} · {a.react_avatar ? 'picture ✓' : 'no picture'}</div>}
                 {a.caption_prompt && <div style={{ color: '#555', fontSize: 12, marginTop: 6, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.caption_prompt}</div>}
               </div>
             </div>
