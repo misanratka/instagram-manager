@@ -147,6 +147,27 @@ router.post('/:id/avatar', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Saves ONLY the Reaction profile (fictional name, handle, picture) so it can't be lost by anything else in the page form.
+router.put('/:id/reaction-profile', async (req, res, next) => {
+  try {
+    await ensureReactColumns();
+    const db = getDB();
+    { const bad = await checkAccountAccess(db, req.params.id, req.headers['x-user-id']); if (bad) return res.status(bad.status).json({ error: bad.error }); }
+    const b = req.body || {};
+    const name = String(b.react_name || '').trim().slice(0, 50);
+    const handle = String(b.react_handle || '').trim().replace(/^@+/, '');
+    if (!name) return res.status(400).json({ error: 'Enter a name for the reaction profile.' });
+    if (!handle || !/^[A-Za-z0-9._]{1,30}$/.test(handle)) return res.status(400).json({ error: 'Handle must be 1-30 letters, numbers, dots or underscores (no spaces).' });
+    const av = String(b.react_avatar || '');
+    if (av && (!/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(av) || av.length > 140000))
+      return res.status(400).json({ error: 'Profile picture must be a small PNG/JPG/WebP image.' });
+    const verified = b.react_verified === true || b.react_verified === 1 || b.react_verified === 'true' ? 1 : 0;
+    await db.run('UPDATE accounts SET react_name=$1, react_handle=$2, react_verified=$3, react_avatar=$4 WHERE id=$5', [name, handle, verified, av || null, req.params.id]);
+    const row = await db.get('SELECT react_name, react_handle, react_avatar FROM accounts WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Reaction profile saved', react_name: row?.react_name, react_handle: row?.react_handle, picture_saved: !!row?.react_avatar });
+  } catch (err) { next(err); }
+});
+
 router.put('/:id', async (req, res, next) => {
   try {
     await ensureReactColumns();
