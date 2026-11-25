@@ -58,6 +58,10 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_verified INTEGER DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_avatar TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS brand_theme TEXT DEFAULT 'dark'`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS react_name TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS react_handle TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS react_verified INTEGER DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS react_avatar TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ig_avatar TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_enabled INTEGER DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS ap_per_day INTEGER DEFAULT 2`).catch(() => {});
@@ -155,6 +159,10 @@ function initSQLite() {
       brand_verified INTEGER DEFAULT 0,
       brand_avatar TEXT,
       brand_theme TEXT DEFAULT 'dark',
+      react_name TEXT,
+      react_handle TEXT,
+      react_verified INTEGER DEFAULT 0,
+      react_avatar TEXT,
       created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
       token_connected_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
