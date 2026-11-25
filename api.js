@@ -100,11 +100,16 @@ async function requestJob(method, path, data, isForm, onStatus) {
 }
 
 export const api = {
+  // STOP ALL (kill switch)
+  stopAll:    () => request('POST', '/kill/stop'),
+  resumeAll:  () => request('POST', '/kill/resume'),
+  stopStatus: () => request('GET',  '/kill/status'),
   // Accounts
   getAccounts:   ()         => request('GET',    '/accounts'),
   addAccount:    (data)     => request('POST',   '/accounts', data),
   updateAccount: (id, data) => request('PUT',    `/accounts/${id}`, data),
   deleteAccount: (id)       => request('DELETE', `/accounts/${id}`),
+  saveReactionProfile: (id, data) => request('PUT', `/accounts/${id}/reaction-profile`, data),
   // Content processing
   processUrl:  (url, account_id, options = {}, onStatus) =>
     requestJob('POST', '/content/process-url', { url, account_id, ...toApiOptions(options) }, false, onStatus),
@@ -115,6 +120,7 @@ export const api = {
     Object.entries(toApiOptions(options)).forEach(([k, v]) => fd.append(k, String(v)));
     return requestJob('POST', '/content/process-file', fd, true, onStatus);
   },
+  generateReaction: (postId, body = {}) => request('POST', `/content/reaction/${postId}`, body),
   regenerateCaption: (postId, account_id, options = {}) =>
     request('POST', `/content/regenerate/${postId}`, { account_id: account_id || undefined, ...toApiOptions(options) }),
   updateCaption: (postId, data) => request('PUT', `/content/caption/${postId}`, data),
